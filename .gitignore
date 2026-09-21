@@ -1,0 +1,15 @@
+# Ambiente virtual
+venv/
+.venv/
+env/
+
+# Arquivos da IDE (PyCharm)
+.idea/
+
+# Arquivos compilados do Python
+__pycache__/
+*.pyc
+
+# Arquivos de saída/gerados
+*.xlsx
+projeto_completo.txt
