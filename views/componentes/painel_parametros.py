@@ -7,7 +7,7 @@ class PainelParametros(ctk.CTkScrollableFrame):
         self.on_selecionar_substancia = on_selecionar_substancia
 
         # 1. Identificação do Ensaio
-        self._titulo("Identificação do Ensaio")
+        self._titulo("Identificação do Experimento")
         self.txt_nome_exp = self._entry("Nome do Ensaio")
         self.txt_professor = self._entry("Nome do Professor")
         self.txt_turma = self._entry("Turma / Disciplina")
