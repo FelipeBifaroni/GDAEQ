@@ -4,10 +4,9 @@ from datetime import datetime
 
 
 class Professor:
-    def __init__(self, id_prof: int, nome: str, email: str):
+    def __init__(self, id_prof: int, nome: str):
         self.id = id_prof
         self.nome = nome
-        self.email = email
 
 
 class Turma:
@@ -28,18 +27,18 @@ class Substancia:
 
 
 class ExperimentoSubstancia:
-    def __init__(self, id_exp_subst: int, coeficiente_estequiometrico: int, substancia: Substancia):
+    def __init__(self, id_exp_subst: int, substancia: Substancia, coeficiente_estequiometrico: int = 1):
         self.id = id_exp_subst
-        self.coeficiente_estequiometrico = coeficiente_estequiometrico
         self.substancia = substancia
+        self.coeficiente_estequiometrico = coeficiente_estequiometrico
 
 
 class ParametroSimulacao:
-    def __init__(self, id_param: int, temp_inicial: float, massa_inicial_a: float, volume_reator: float):
+    def __init__(self, id_param: int, temp_inicial: float, massa_inicial_a: float, massa_total: float):
         self.id = id_param
         self.temp_inicial = temp_inicial
         self.massa_inicial_a = massa_inicial_a
-        self.volume_reator = volume_reator
+        self.massa_total = massa_total
 
 
 class GemeoDigital:
@@ -69,7 +68,7 @@ class ConexaoSerial:
     def desconectar(self) -> None:
         self.conexao_ativa = False
 
-    def ler_dados_temp(self, temp_base: float) -> float:
+    def ler_dados_temp(self, temp_base: float = 25.0) -> float:
         leitura_bruta = temp_base + random.uniform(-0.2, 0.2)
         return (leitura_bruta * self.ganho_temperatura) + self.offset_temperatura
 
@@ -119,11 +118,15 @@ class Experimento:
         massa_g = self.parametro_simulacao.massa_inicial_a
         massa_molar = self.experimento_substancia.substancia.massa_molar
         entalpia_kj_mol = self.experimento_substancia.substancia.entalpia_formacao
-        volume_ml = self.parametro_simulacao.volume_reator
+        massa_total = self.parametro_simulacao.massa_total
+
+        # Proteção contra divisão por zero (caso o volume ou massa molar sejam 0)
+        if massa_total <= 0 or massa_molar <= 0:
+            raise ValueError("A Massa total do reator e a massa molar devem ser maiores que zero.")
 
         n_mols = massa_g / massa_molar
         q_joules = (n_mols * abs(entalpia_kj_mol)) * 1000.0
-        delta_t = q_joules / (volume_ml * 4.184)
+        delta_t = q_joules / (massa_total * 4.184)
         self.delta_t_calculado = -delta_t if entalpia_kj_mol > 0 else delta_t
         return self.delta_t_calculado
 

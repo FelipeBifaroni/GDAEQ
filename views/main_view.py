@@ -3,6 +3,7 @@ from tkinter import messagebox, filedialog
 import customtkinter as ctk
 from views.componentes.painel_parametros import PainelParametros
 from views.componentes.dashboard_gui import DashboardGUI
+from controllers.sensor_controller import SensorController
 from controllers.experimento_controller import ExperimentoController
 
 class MainView(ctk.CTk):
@@ -13,7 +14,9 @@ class MainView(ctk.CTk):
         self.geometry("1380x800")
         self.minsize(1100, 650)
 
+        self.sensor_controller = SensorController()
         self.controller = ExperimentoController()
+        self.controller.view = self
 
         self.substancias_predefinidas = {
             "Nitrato de Amônio (NH4NO3 - Endotérmica)": {"nome": "Nitrato de Amônio", "formula": "NH4NO3", "estado": "Sólido", "massa_molar": 80.04, "entalpia": 25.7},
@@ -95,8 +98,8 @@ class MainView(ctk.CTk):
             # --- VALIDAÇÃO CONTRA DIVISÃO POR ZERO E VALORES INVÁLIDOS ---
             if dados["massa_molar"] <= 0:
                 raise ValueError("A Massa Molar deve ser maior que zero.")
-            if dados["volume"] <= 0:
-                raise ValueError("O Volume do Reator deve ser maior que zero.")
+            if dados["massa_total"] <= 0:
+                raise ValueError("A massa total do Reator deve ser maior que zero.")
             if dados["massa_reagente"] <= 0:
                 raise ValueError("A Massa do Reagente deve ser maior que zero.")
 
@@ -126,8 +129,21 @@ class MainView(ctk.CTk):
         self.painel_esq.btn_parar.configure(state="disabled")
 
     def _calibrar_sensores(self):
-        self.controller.calibrar_sensores()
-        messagebox.showinfo("Calibração", "Calibração realizada com sucesso!")
+        """Executa a tara/calibração e preenche automaticamente o campo de Temp. Inicial."""
+        porta = self.painel_esq.txt_porta_com.get()
+
+        # 1. Executa a calibração e obtém a temperatura real lida pelo sensor
+        temp_lida = self.sensor_controller.calibrar_sensores(porta_com=porta)
+
+        # 2. Insere o valor automaticamente no campo de Temperatura Inicial do painel
+        # (Certifique-se de que o nome 'txt_temp_inicial' corresponde ao atributo no seu PainelParametros)
+        self.painel_esq.txt_temp_ini.delete(0, "end")
+        self.painel_esq.txt_temp_ini.insert(0, f"{temp_lida:.2f}")
+
+        messagebox.showinfo(
+            "Calibração Concluída",
+            f"Tara realizada com sucesso!\nTemperatura inicial capturada: {temp_lida:.2f}°C"
+        )
 
     def _exportar_excel(self):
         caminho = filedialog.asksaveasfilename(
@@ -145,32 +161,129 @@ class MainView(ctk.CTk):
     def _abrir_historico(self):
         janela_hist = ctk.CTkToplevel(self)
         janela_hist.title("Histórico de Experimentos")
-        janela_hist.geometry("720x450")
+        janela_hist.geometry("780x500")
         janela_hist.grab_set()
 
-        ctk.CTkLabel(janela_hist, text="Experimentos Gravados na Sessão", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=15)
-        frame_lista = ctk.CTkScrollableFrame(janela_hist, width=660, height=300)
-        frame_lista.pack(padx=20, pady=10, fill="both", expand=True)
+        ctk.CTkLabel(janela_hist, text="Experimentos Gravados no Banco de Dados",
+                     font=ctk.CTkFont(size=18, weight="bold")).pack(pady=15)
 
-        for exp in self.controller.historico_banco_memoria:
-            item_frame = ctk.CTkFrame(frame_lista, fg_color="gray17")
-            item_frame.pack(fill="x", pady=3)
+        # Cabeçalho da Tabela
+        header_frame = ctk.CTkFrame(janela_hist, fg_color="gray25", height=35)
+        header_frame.pack(padx=20, pady=(0, 5), fill="x")
+
+        ctk.CTkLabel(header_frame, text="ID", width=40, font=ctk.CTkFont(weight="bold")).pack(side="left", padx=5)
+        ctk.CTkLabel(header_frame, text="Nome do Ensaio", width=240, anchor="w", font=ctk.CTkFont(weight="bold")).pack(
+            side="left", padx=5)
+        ctk.CTkLabel(header_frame, text="Data", width=130, font=ctk.CTkFont(weight="bold")).pack(side="left", padx=5)
+        ctk.CTkLabel(header_frame, text="Ação", width=120, font=ctk.CTkFont(weight="bold")).pack(side="right", padx=10)
+
+        # Área Scrollável corrigida
+        frame_lista = ctk.CTkScrollableFrame(janela_hist, width=720, height=340)
+        frame_lista.pack(padx=20, pady=5, fill="both", expand=True)
+
+        historico = self.controller.listar_historico_banco()
+        if not historico:
+            ctk.CTkLabel(frame_lista, text="Nenhum experimento encontrado.", text_color="gray").pack(pady=20)
+            return
+
+        for exp in historico:
+            item_frame = ctk.CTkFrame(frame_lista, fg_color="gray17", corner_radius=6)
+            item_frame.pack(fill="x", pady=4, ipady=4)
+
             ctk.CTkLabel(item_frame, text=str(exp["id"]), width=40).pack(side="left", padx=5)
-            ctk.CTkLabel(item_frame, text=exp["nome"], width=220, anchor="w").pack(side="left", padx=5)
-            ctk.CTkLabel(item_frame, text=exp["data"], width=140).pack(side="left", padx=5)
-            ctk.CTkLabel(item_frame, text=exp["professor"], width=120).pack(side="left", padx=5)
+            ctk.CTkLabel(item_frame, text=exp["nome"], width=240, anchor="w").pack(side="left", padx=5)
+            ctk.CTkLabel(item_frame, text=str(exp["data"]), width=130).pack(side="left", padx=5)
+
+            # Botão para carregar o experimento selecionado
+            btn_carregar = ctk.CTkButton(
+                item_frame, text="📂 Carregar", width=100, fg_color="#1f538d",
+                command=lambda eid=exp["id"]: self._carregar_e_fechar_historico(eid, janela_hist)
+            )
+            btn_carregar.pack(side="right", padx=10)
+
+    def _carregar_e_fechar_historico(self, experimento_id, janela):
+        sucesso = self.controller.carregar_experimento_por_id(experimento_id)
+        if sucesso:
+            # 1. Limpa e plota o gráfico
+            self.dashboard_gui.limpar()
+            for dado in self.controller.experimento.dados_grafico:
+                self.dashboard_gui.renderizar_ponto(dado)
+
+            # 2. Atualiza a barra de status e o campo de descrição
+            self.lbl_estado.configure(text="ESTADO: HISTÓRICO CARREGADO", text_color="cyan")
+
+            self.txt_exp_desc.delete("1.0", "end")
+            self.txt_exp_desc.insert("1.0", self.controller.experimento.descricao or "")
+
+            # 3. Preenche a barra lateral esquerda com os dados recuperados do banco
+            exp = self.controller.experimento
+            param = exp.parametro_simulacao
+            subst_obj = exp.experimento_substancia.substancia if exp.experimento_substancia else None
+
+            dados_formulario = {
+                "nome_exp": exp.nome,
+                "professor": exp.professor.nome if exp.professor else "",
+                "turma": exp.turma.nome if exp.turma else "",
+                "subst_nome": subst_obj.nome if subst_obj else "",
+                "subst_formula": subst_obj.formula if subst_obj else "",
+                "massa_molar": subst_obj.massa_molar if subst_obj else 0.0,
+                "massa_reagente": param.massa_inicial_a if param else 0.0,
+                "entalpia": subst_obj.entalpia_formacao if subst_obj else 0.0,
+                "temp_ini": param.temp_inicial if param else 25.0,
+                "massa_total": param.massa_total if param else 100.0,
+                "porta_com": "COM3"
+            }
+            self.painel_esq.preencher_formulario(dados_formulario)
+
+            if param:
+                delta_t_estimado = (
+                            exp.dados_grafico[-1].temp_simulada - param.temp_inicial) if exp.dados_grafico else 0.0
+                self.lbl_delta_t.configure(text=f"ΔT Teórico/Real: {delta_t_estimado:.2f} °C")
+
+            # 4. Ajusta estados dos botões
+            self.painel_esq.btn_iniciar.configure(state="normal")
+            self.painel_esq.btn_pausar.configure(state="disabled")
+            self.painel_esq.btn_parar.configure(state="disabled")
+
+            janela.destroy()
+            messagebox.showinfo("Sucesso", f"Experimento #{experimento_id} carregado com sucesso!")
+        else:
+            messagebox.showerror("Erro", "Não foi possível carregar os dados deste experimento.")
 
     def _loop_telemetria(self):
-        ponto = self.controller.obter_proximo_ponto()
-        if ponto:
-            self.lbl_temp_real.configure(text=f"Temp. Real: {ponto['temp_real']:.2f} °C")
-            self.lbl_temp_sim.configure(text=f"Gêmeo Digital: {ponto['temp_simulada']:.2f} °C")
-            self.dashboard_gui.renderizar_ponto(ponto["dado_obj"])
+        try:
+            ponto = self.controller.obter_proximo_ponto()
+            if ponto:
+                self.lbl_temp_real.configure(text=f"Temp. Real: {ponto['temp_real']:.2f} °C")
+                self.lbl_temp_sim.configure(text=f"Gêmeo Digital: {ponto['temp_simulada']:.2f} °C")
 
-            if ponto["status"] == "Finalizado":
-                self.lbl_estado.configure(text="ESTADO: FINALIZADO", text_color="cyan")
-                self.painel_esq.btn_iniciar.configure(state="normal")
-                self.painel_esq.btn_pausar.configure(state="disabled")
-                self.painel_esq.btn_parar.configure(state="disabled")
+                if "status" in ponto and ponto["status"]:
+                    status_atual = ponto["status"]
+                    if status_atual == "Reagindo":
+                        self.lbl_estado.configure(text="ESTADO: REAGINDO", text_color="lightgreen")
+                    elif status_atual == "Finalizado":
+                        self.lbl_estado.configure(text="ESTADO: FINALIZADO", text_color="cyan")
+                        self.painel_esq.btn_iniciar.configure(state="normal")
+                        self.painel_esq.btn_pausar.configure(state="disabled")
+                        self.painel_esq.btn_parar.configure(state="disabled")
+
+                if ponto.get("dado_obj"):
+                    self.dashboard_gui.renderizar_ponto(ponto["dado_obj"])
+
+        except Exception as e:
+            erro_str = str(e)
+            print(f"⚠️ Erro capturado no loop de telemetria: {erro_str}")
+
+            # 🔴 SE O ERRO FOR DA TRIGGER DE SEGURANÇA, MUDA IMEDIATAMENTE A INTERFACE
+            if "fora da faixa operacional" in erro_str:
+                self.acionar_emergencia_visual()
 
         self.after(1000, self._loop_telemetria)
+
+    def acionar_emergencia_visual(self):
+        """Atualiza a interface para o estado crítico de emergência detetado pelo banco/trigger."""
+        self.lbl_estado.configure(text="ESTADO: EMERGÊNCIA", text_color="red")
+        self.painel_esq.btn_iniciar.configure(state="normal")
+        self.painel_esq.btn_pausar.configure(state="disabled")
+        self.painel_esq.btn_parar.configure(state="disabled")
+

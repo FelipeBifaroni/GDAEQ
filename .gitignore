@@ -13,3 +13,6 @@ __pycache__/
 # Arquivos de saída/gerados
 *.xlsx
 projeto_completo.txt
+
+# Banco de dados local
+GDAEQ.db
