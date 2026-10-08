@@ -1,6 +1,6 @@
 import pandas as pd
 from datetime import datetime
-from models.entidades import ConexaoSerial, Experimento, Professor, Turma, Substancia, ExperimentoSubstancia, ParametroSimulacao, DadoGrafico
+from models.domain import ConexaoSerial, Experimento, Professor, Turma, Substancia, ExperimentoSubstancia, ParametroSimulacao, DadoGrafico
 from models.repository import ExperimentoRepository
 
 

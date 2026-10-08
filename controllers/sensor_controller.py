@@ -1,4 +1,4 @@
-from models.entidades import ConexaoSerial
+from models.domain import ConexaoSerial
 
 class SensorController:
     def __init__(self):

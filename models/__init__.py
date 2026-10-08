@@ -1,4 +1,4 @@
-from models.entidades import Experimento, Professor, Turma, Substancia
+from models.domain import Experimento, Professor, Turma, Substancia
 from models.schema import criar_banco_e_tabelas
 
 __all__ = [
