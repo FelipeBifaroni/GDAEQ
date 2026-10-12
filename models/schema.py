@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS Dado_Grafico (
     temp_simulada REAL NOT NULL,
     FOREIGN KEY (experimento_id) REFERENCES Experimento(id) ON DELETE CASCADE
 );
+    
 
 -- Triggers de Segurança e Negócio
 CREATE TRIGGER IF NOT EXISTS trg_validar_temp_sensor

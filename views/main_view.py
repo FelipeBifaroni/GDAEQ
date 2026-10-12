@@ -16,7 +16,6 @@ class MainView(ctk.CTk):
 
         self.sensor_controller = SensorController()
         self.controller = ExperimentoController()
-        self.controller.view = self
 
         self.substancias_predefinidas = {
             "Nitrato de Amônio (NH4NO3 - Endotérmica)": {"nome": "Nitrato de Amônio", "formula": "NH4NO3", "estado": "Sólido", "massa_molar": 80.04, "entalpia": 25.7},
@@ -81,9 +80,14 @@ class MainView(ctk.CTk):
         self.painel_esq.btn_calibrar.configure(command=self._calibrar_sensores)
         self.painel_esq.btn_excel.configure(command=self._exportar_excel)
         self.painel_esq.btn_historico.configure(command=self._abrir_historico)
+        self.painel_esq.btn_atualizar.configure(command=self._ao_clicar_atualizar)
 
     def _iniciar_ensaio(self):
+        if self.painel_esq.btn_iniciar.cget("text") == "✨ Novo Experimento":
+            self._novo_experimento()
+            return
         try:
+            self.painel_esq.liberar_parametros_fisicos()
             dados = self.painel_esq.obter_dados_formulario()
             dados["descricao"] = self.txt_exp_desc.get("1.0", "end-1c").strip()
 
@@ -118,8 +122,15 @@ class MainView(ctk.CTk):
 
     def _pausar_ensaio(self):
         novo_status = self.controller.pausar_ensaio()
-        cor = "orange" if novo_status == "Pausado" else "lightgreen"
-        self.lbl_estado.configure(text=f"ESTADO: {novo_status.upper()}", text_color=cor)
+
+        if novo_status == "Pausado":
+            self.lbl_estado.configure(text="ESTADO: PAUSADO", text_color="orange")
+            # Muda o texto do botão para indicar que agora ele serve para retomar
+            self.painel_esq.btn_pausar.configure(text="Retomar", fg_color="#b28f00", hover_color="#8c7000")
+        else:
+            self.lbl_estado.configure(text="ESTADO: REAGINDO", text_color="lightgreen")
+            # Retorna o botão ao estado normal de pausa
+            self.painel_esq.btn_pausar.configure(text="Pausar", fg_color="orange", hover_color="#cc8400")
 
     def _interromper_emergencia(self):
         self.controller.interromper_emergencia()
@@ -136,7 +147,6 @@ class MainView(ctk.CTk):
         temp_lida = self.sensor_controller.calibrar_sensores(porta_com=porta)
 
         # 2. Insere o valor automaticamente no campo de Temperatura Inicial do painel
-        # (Certifique-se de que o nome 'txt_temp_inicial' corresponde ao atributo no seu PainelParametros)
         self.painel_esq.txt_temp_ini.delete(0, "end")
         self.painel_esq.txt_temp_ini.insert(0, f"{temp_lida:.2f}")
 
@@ -194,6 +204,14 @@ class MainView(ctk.CTk):
             ctk.CTkLabel(item_frame, text=exp["nome"], width=240, anchor="w").pack(side="left", padx=5)
             ctk.CTkLabel(item_frame, text=str(exp["data"]), width=130).pack(side="left", padx=5)
 
+            # --- BOTÃO DE EXCLUIR COM CONFIRMAÇÃO ---
+            btn_excluir = ctk.CTkButton(
+                item_frame, text="🗑️ Excluir", width=90, fg_color="#a83232", hover_color="#7a2222",
+                command=lambda eid=exp["id"], nome=exp["nome"], j_hist=janela_hist: self._confirmar_e_excluir(eid, nome,
+                                                                                                              j_hist)
+            )
+            btn_excluir.pack(side="right", padx=5)
+
             # Botão para carregar o experimento selecionado
             btn_carregar = ctk.CTkButton(
                 item_frame, text="📂 Carregar", width=100, fg_color="#1f538d",
@@ -209,46 +227,57 @@ class MainView(ctk.CTk):
             for dado in self.controller.experimento.dados_grafico:
                 self.dashboard_gui.renderizar_ponto(dado)
 
-            # 2. Atualiza a barra de status e o campo de descrição
+            # 2. Atualiza a barra de status
             self.lbl_estado.configure(text="ESTADO: HISTÓRICO CARREGADO", text_color="cyan")
 
-            self.txt_exp_desc.delete("1.0", "end")
-            self.txt_exp_desc.insert("1.0", self.controller.experimento.descricao or "")
-
-            # 3. Preenche a barra lateral esquerda com os dados recuperados do banco
-            exp = self.controller.experimento
-            param = exp.parametro_simulacao
-            subst_obj = exp.experimento_substancia.substancia if exp.experimento_substancia else None
-
-            dados_formulario = {
-                "nome_exp": exp.nome,
-                "professor": exp.professor.nome if exp.professor else "",
-                "turma": exp.turma.nome if exp.turma else "",
-                "subst_nome": subst_obj.nome if subst_obj else "",
-                "subst_formula": subst_obj.formula if subst_obj else "",
-                "massa_molar": subst_obj.massa_molar if subst_obj else 0.0,
-                "massa_reagente": param.massa_inicial_a if param else 0.0,
-                "entalpia": subst_obj.entalpia_formacao if subst_obj else 0.0,
-                "temp_ini": param.temp_inicial if param else 25.0,
-                "massa_total": param.massa_total if param else 100.0,
-                "porta_com": "COM3"
-            }
+            # 3. Pede os dados formatados diretamente ao controller (Sem acoplamento profundo)
+            dados_formulario = self.controller.obter_dados_experimento_ativo()
             self.painel_esq.preencher_formulario(dados_formulario)
 
-            if param:
-                delta_t_estimado = (
-                            exp.dados_grafico[-1].temp_simulada - param.temp_inicial) if exp.dados_grafico else 0.0
-                self.lbl_delta_t.configure(text=f"ΔT Teórico/Real: {delta_t_estimado:.2f} °C")
+            self.painel_esq.bloquear_parametros_fisicos()
 
-            # 4. Ajusta estados dos botões
-            self.painel_esq.btn_iniciar.configure(state="normal")
+            # 4. Ajusta estados e o visual do botão para o modo Histórico Carregado
+            self.painel_esq.bloquear_parametros_fisicos()
+
+            self.painel_esq.btn_iniciar.configure(
+                text="✨ Novo Experimento",
+                fg_color="#1f538d",  # Azul
+                hover_color="#14375e",
+                state="normal"
+            )
             self.painel_esq.btn_pausar.configure(state="disabled")
             self.painel_esq.btn_parar.configure(state="disabled")
+
+            # Atualiza o campo de descrição separadamente
+            self.txt_exp_desc.delete("1.0", "end")
+            self.txt_exp_desc.insert("1.0", dados_formulario["descricao"])
+
+            param = self.controller.experimento.parametro_simulacao
+            if param and self.controller.experimento.dados_grafico:
+                delta_t_estimado = self.controller.experimento.dados_grafico[-1].temp_simulada - param.temp_inicial
+                self.lbl_delta_t.configure(text=f"ΔT Teórico/Real: {delta_t_estimado:.2f} °C")
 
             janela.destroy()
             messagebox.showinfo("Sucesso", f"Experimento #{experimento_id} carregado com sucesso!")
         else:
             messagebox.showerror("Erro", "Não foi possível carregar os dados deste experimento.")
+
+    def _confirmar_e_excluir(self, experimento_id, nome_ensaio, janela_historico):
+        """Exibe um aviso de confirmação antes de excluir permanentemente o experimento."""
+        resposta = messagebox.askyesno(
+            "Confirmar Exclusão",
+            f"Tem certeza que deseja excluir o experimento #{experimento_id} ('{nome_ensaio}')?\n\nEsta ação não pode ser desfeita!",
+            icon="warning"
+        )
+
+        if resposta:
+            sucesso = self.controller.excluir_experimento(experimento_id)
+            if sucesso:
+                messagebox.showinfo("Sucesso", f"Experimento #{experimento_id} excluído com sucesso.")
+                janela_historico.destroy()
+                self._abrir_historico()  # Reabre a janela de histórico atualizada
+            else:
+                messagebox.showerror("Erro", "Não foi possível excluir o experimento do banco de dados.")
 
     def _loop_telemetria(self):
         try:
@@ -257,26 +286,23 @@ class MainView(ctk.CTk):
                 self.lbl_temp_real.configure(text=f"Temp. Real: {ponto['temp_real']:.2f} °C")
                 self.lbl_temp_sim.configure(text=f"Gêmeo Digital: {ponto['temp_simulada']:.2f} °C")
 
-                if "status" in ponto and ponto["status"]:
-                    status_atual = ponto["status"]
-                    if status_atual == "Reagindo":
-                        self.lbl_estado.configure(text="ESTADO: REAGINDO", text_color="lightgreen")
-                    elif status_atual == "Finalizado":
-                        self.lbl_estado.configure(text="ESTADO: FINALIZADO", text_color="cyan")
-                        self.painel_esq.btn_iniciar.configure(state="normal")
-                        self.painel_esq.btn_pausar.configure(state="disabled")
-                        self.painel_esq.btn_parar.configure(state="disabled")
+                status_atual = ponto.get("status", "")
+                if status_atual == "Reagindo":
+                    self.lbl_estado.configure(text="ESTADO: REAGINDO", text_color="lightgreen")
+                elif status_atual == "Finalizado":
+                    self.lbl_estado.configure(text="ESTADO: FINALIZADO", text_color="cyan")
+                    self.painel_esq.btn_iniciar.configure(state="normal")
+                    self.painel_esq.btn_pausar.configure(state="disabled")
+                    self.painel_esq.btn_parar.configure(state="disabled")
+                elif status_atual == "Emergência":
+                    # Tratamento reativo limpo feito diretamente na View
+                    self.acionar_emergencia_visual()
 
                 if ponto.get("dado_obj"):
                     self.dashboard_gui.renderizar_ponto(ponto["dado_obj"])
 
         except Exception as e:
-            erro_str = str(e)
-            print(f"⚠️ Erro capturado no loop de telemetria: {erro_str}")
-
-            # 🔴 SE O ERRO FOR DA TRIGGER DE SEGURANÇA, MUDA IMEDIATAMENTE A INTERFACE
-            if "fora da faixa operacional" in erro_str:
-                self.acionar_emergencia_visual()
+            print(f"⚠️ Erro capturado no loop de telemetria: {e}")
 
         self.after(1000, self._loop_telemetria)
 
@@ -287,3 +313,68 @@ class MainView(ctk.CTk):
         self.painel_esq.btn_pausar.configure(state="disabled")
         self.painel_esq.btn_parar.configure(state="disabled")
 
+    def _ao_clicar_atualizar(self):
+        """Recolhe os dados editados da tela e atualiza o registo ativo no banco."""
+        if not getattr(self.controller, 'experimento_id_db', None):
+            messagebox.showwarning("Aviso", "Nenhum experimento carregado ou ativo para atualizar. Carregue um do histórico primeiro.")
+            return
+
+        try:
+            dados = self.painel_esq.obter_dados_formulario()
+            dados["descricao"] = self.txt_exp_desc.get("1.0", "end-1c").strip()
+
+            # Validações básicas
+            if not dados.get("nome_exp", "").strip():
+                raise ValueError("O Nome do Ensaio é obrigatório.")
+            if not dados.get("professor", "").strip():
+                raise ValueError("O Nome do Professor é obrigatório.")
+            if not dados.get("turma", "").strip():
+                raise ValueError("A Turma é obrigatória.")
+
+            # Executa a atualização via controller
+            sucesso = self.controller.atualizar_experimento_atual(dados)
+
+            if sucesso:
+                messagebox.showinfo("Sucesso", f"Experimento #{self.controller.experimento_id_db} atualizado com sucesso!")
+            else:
+                messagebox.showerror("Erro", "Não foi possível atualizar o registo no banco de dados.")
+
+        except Exception as e:
+            messagebox.showerror("Erro de Validação", f"Erro ao atualizar:\n{str(e)}")
+
+    def _novo_experimento(self):
+        """Reseta a interface e o controller para permitir criar um novo ensaio do zero."""
+        self.controller.experimento_id_db = None
+
+        # Libera os campos físicos e o botão de tara que estavam bloqueados pelo histórico
+        self.painel_esq.liberar_parametros_fisicos()
+
+        # Limpa os campos do formulário
+        campos_vazios = {
+            "nome_exp": "", "professor": "", "turma": "",
+            "subst_nome": "", "subst_formula": "",
+            "massa_molar": "", "massa_reagente": "",
+            "entalpia": "", "temp_ini": "", "massa_total": "",
+            "porta_com": "COM3", "descricao": ""
+        }
+        self.painel_esq.preencher_formulario(campos_vazios)
+        self.txt_exp_desc.delete("1.0", "end")
+
+        # Limpa gráfico e status
+        self.dashboard_gui.limpar()
+        self.lbl_estado.configure(text="ESTADO: INATIVO", text_color="lightblue")
+        self.lbl_delta_t.configure(text="ΔT Teórico: -- °C", text_color="yellow")
+        self.lbl_temp_real.configure(text="Temp. Real: -- °C")
+        self.lbl_temp_sim.configure(text="Gêmeo Digital: -- °C")
+
+        # Restaura o botão de Iniciar ao estado original (VERDE)
+        self.painel_esq.btn_iniciar.configure(
+            text="Iniciar",
+            fg_color="green",
+            hover_color="#134f13",
+            state="normal"
+        )
+        self.painel_esq.btn_pausar.configure(state="disabled")
+        self.painel_esq.btn_parar.configure(state="disabled")
+
+        messagebox.showinfo("Novo Ensaio", "Ambiente limpo! Insira os dados para iniciar um novo experimento.")

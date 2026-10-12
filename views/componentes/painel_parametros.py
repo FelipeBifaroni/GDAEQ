@@ -25,14 +25,18 @@ class PainelParametros(ctk.CTkFrame):
         )
         self.btn_historico.pack(side="left", padx=5, pady=8)
 
+
+
         self.btn_excel = ctk.CTkButton(
             self.frame_topo_acoes, text="📊 Exportar", fg_color="#107c41",
             width=90, height=28, command=cmd_excel
         )
         self.btn_excel.pack(side="right", padx=5, pady=8)
 
+
+
         # ----------------------------------------------------
-        # 2. ÁREA SCROLLÁVEL DE PARÂMETROS E CONTROLOS DO ENSAIO
+        # 2. ÁREA SCROLLÁVEL DE PARÂMETROS E CONTROLES DO ENSAIO
         # ----------------------------------------------------
         self.scroll_params = ctk.CTkScrollableFrame(self, corner_radius=6)
         self.scroll_params.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
@@ -86,6 +90,11 @@ class PainelParametros(ctk.CTkFrame):
                                        state="disabled")
         self.btn_parar.pack(fill="x", padx=10, pady=(4, 15))
 
+        self.btn_atualizar = ctk.CTkButton(
+            self.scroll_params, text="💾 Salvar Alterações (Atualizar)", fg_color="#1f538d", hover_color="#14375e"
+        )
+        self.btn_atualizar.pack(fill="x", padx=10, pady=4)
+
     def _titulo(self, master, texto: str):
         ctk.CTkLabel(master, text=texto, font=ctk.CTkFont(size=16, weight="bold")).pack(padx=10, pady=(10, 5))
 
@@ -118,8 +127,18 @@ class PainelParametros(ctk.CTkFrame):
             self.on_selecionar_substancia(escolha)
 
     def _set_text(self, entry: ctk.CTkEntry, valor: str):
+        entry.configure(state="normal", fg_color=("#F9F9F9", "#343638"))
         entry.delete(0, "end")
-        entry.insert(0, valor)
+
+        if valor is not None and str(valor).strip() != "" and str(valor).strip() != "0.0":
+            entry.insert(0, str(valor))
+        else:
+            # Força o componente a atualizar o desenho do placeholder na tela
+            entry.focus_set()
+            entry.selection_clear()
+
+        # Retira o foco para que o campo não fique selecionado ao carregar
+        self.focus_set()
 
     def obter_dados_formulario(self) -> dict:
         return {
@@ -154,3 +173,38 @@ class PainelParametros(ctk.CTkFrame):
         self._set_text(self.txt_temp_ini, str(dados.get("temp_ini", "")))
         self._set_text(self.txt_massa_total, str(dados.get("massa_total", "")))
         self._set_text(self.txt_porta_com, dados.get("porta_com", ""))
+
+    def bloquear_parametros_fisicos(self):
+        """Bloqueia a edição dos campos físicos, estequiométricos e o botão de tara (histórico)."""
+        campos_para_bloquear = [
+            self.txt_massa_molar,
+            self.txt_massa,
+            self.txt_entalpia,
+            self.txt_temp_ini,
+            self.txt_massa_total
+        ]
+        for campo in campos_para_bloquear:
+            campo.configure(state="normal")
+            campo.configure(
+                state="disabled",
+                fg_color="gray25",
+                text_color="#FFFFFF"
+            )
+        self.btn_calibrar.configure(state="disabled", fg_color="gray30")
+
+    def liberar_parametros_fisicos(self):
+        """Libera a edição dos campos físicos e reativa o botão de tara (novo ensaio)."""
+        campos_para_liberar = [
+            self.txt_massa_molar,
+            self.txt_massa,
+            self.txt_entalpia,
+            self.txt_temp_ini,
+            self.txt_massa_total
+        ]
+        for campo in campos_para_liberar:
+            campo.configure(
+                state="normal",
+                fg_color=("#F9F9F9", "#343638"),
+                text_color=("#000000", "#FFFFFF")
+            )
+        self.btn_calibrar.configure(state="normal", fg_color="gray40")

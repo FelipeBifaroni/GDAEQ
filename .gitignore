@@ -16,3 +16,6 @@ projeto_completo.txt
 
 # Banco de dados local
 GDAEQ.db
+
+# Testes
+test_gdaeq_todos_cts.py

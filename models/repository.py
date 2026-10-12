@@ -156,7 +156,9 @@ class ExperimentoRepository:
                                   s.formula,
                                   s.massa_molar,
                                   s.entalpia_formacao,
-                                  es.coeficiente_estequiometrico
+                                  es.coeficiente_estequiometrico,
+                                  e.professor_id, 
+                                  e.turma_id      
                            FROM Experimento e
                                     LEFT JOIN Professor p ON e.professor_id = p.id
                                     LEFT JOIN Turma t ON e.turma_id = t.id
@@ -209,3 +211,63 @@ class ExperimentoRepository:
             )
 
             return cursor.fetchone() is not None
+
+    @staticmethod
+    def excluir_experimento_banco(experimento_id: int) -> bool:
+        """Remove um experimento e todos os seus dados associados do banco."""
+        with conectar_bd() as conexao:
+            cursor = conexao.cursor()
+            try:
+                cursor.execute("DELETE FROM Experimento WHERE id = ?;", (experimento_id,))
+                conexao.commit()
+                return True
+            except Exception as e:
+                print(f"Erro ao excluir experimento: {e}")
+                conexao.rollback()
+                return False
+
+    @staticmethod
+    def listar_todos():
+        """Retorna todos os experimentos para o histórico."""
+        sql = """
+              SELECT e.id, e.nome, e.data_realizacao, p.nome
+              FROM Experimento e
+                       LEFT JOIN Professor p ON e.professor_id = p.id
+              ORDER BY e.id DESC; \
+              """
+        with conectar_bd() as conexao:
+            cursor = conexao.cursor()
+            cursor.execute(sql)
+            return cursor.fetchall()
+
+
+    @staticmethod
+    def atualizar_cabecalho_experimento(experimento_id: int, nome_exp: str, professor_id: int, turma_id: int,
+                                        descricao: str, substancia_id: int):
+        """Atualiza a identificação, descrição e a substância associada do registo."""
+        sql_experimento = """
+                  UPDATE Experimento
+                  SET nome         = ?, 
+                      professor_id = ?, 
+                      turma_id     = ?, 
+                      descricao    = ?
+                  WHERE id = ?;
+                  """
+
+        sql_substancia_relacao = """
+                  UPDATE Experimento_Substancia
+                  SET substancia_id = ?
+                  WHERE experimento_id = ?;
+                  """
+
+        with conectar_bd() as conexao:
+            cursor = conexao.cursor()
+
+            # 1. Atualiza os dados principais do experimento
+            cursor.execute(sql_experimento, (nome_exp, professor_id, turma_id, descricao, experimento_id))
+
+            # 2. Atualiza a associação da substância do experimento
+            cursor.execute(sql_substancia_relacao, (substancia_id, experimento_id))
+
+            conexao.commit()
+            return True
