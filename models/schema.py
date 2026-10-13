@@ -61,7 +61,13 @@ CREATE TABLE IF NOT EXISTS Dado_Grafico (
     temp_simulada REAL NOT NULL,
     FOREIGN KEY (experimento_id) REFERENCES Experimento(id) ON DELETE CASCADE
 );
-    
+
+CREATE TABLE IF NOT EXISTS LogAlerta (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tipo_evento TEXT NOT NULL,
+    descricao TEXT NOT NULL,
+    timestamp TEXT NOT NULL
+);
 
 -- Triggers de Segurança e Negócio
 CREATE TRIGGER IF NOT EXISTS trg_validar_temp_sensor

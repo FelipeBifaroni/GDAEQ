@@ -3,7 +3,7 @@ import customtkinter as ctk
 
 class PainelParametros(ctk.CTkFrame):
     def __init__(self, master, substancias_predefinidas: dict, on_selecionar_substancia, cmd_historico=None,
-                 cmd_excel=None):
+                 cmd_excel=None, cmd_logs=None):
         super().__init__(master, corner_radius=10)
         self.substancias_predefinidas = substancias_predefinidas
         self.on_selecionar_substancia = on_selecionar_substancia
@@ -21,17 +21,22 @@ class PainelParametros(ctk.CTkFrame):
 
         self.btn_historico = ctk.CTkButton(
             self.frame_topo_acoes, text="📁 Histórico", fg_color="navy",
-            width=100, height=28, command=cmd_historico
+            width=100, height=26, font=ctk.CTkFont(size=12), command=cmd_historico
         )
-        self.btn_historico.pack(side="left", padx=5, pady=8)
-
-
+        self.btn_historico.pack(side="left", padx=5, pady=6)
 
         self.btn_excel = ctk.CTkButton(
             self.frame_topo_acoes, text="📊 Exportar", fg_color="#107c41",
-            width=90, height=28, command=cmd_excel
+            width=100, height=26, font=ctk.CTkFont(size=12), command=cmd_excel
         )
-        self.btn_excel.pack(side="right", padx=5, pady=8)
+        self.btn_excel.pack(side="right", padx=5, pady=6)
+
+
+        self.btn_logs = ctk.CTkButton(
+            self.frame_topo_acoes, text="📋 Alertas", fg_color="#b22222", hover_color="#8b0000",
+            width=100, height=26, font=ctk.CTkFont(size=12), command=cmd_logs
+        )
+        self.btn_logs.pack(side="left", expand=True, padx=5, pady=6)
 
 
 
@@ -208,3 +213,43 @@ class PainelParametros(ctk.CTkFrame):
                 text_color=("#000000", "#FFFFFF")
             )
         self.btn_calibrar.configure(state="normal", fg_color="gray40")
+
+    def abrir_janela_logs(self):
+        """Abre uma janela pop-up estilizada com a tabela de logs de alerta do banco."""
+        from tkinter import ttk
+        from models.log_repository import LogRepository
+
+        janela_logs = ctk.CTkToplevel(self)
+        janela_logs.title("Histórico de Alertas e Emergências")
+        janela_logs.geometry("650x400")
+        janela_logs.grab_set()  # Mantém o foco na janela de logs
+
+        # Título da janela
+        lbl_titulo = ctk.CTkLabel(janela_logs, text="📋 Registros de Alerta e Anomalias",
+                                  font=ctk.CTkFont(size=16, weight="bold"))
+        lbl_titulo.pack(pady=10)
+
+        # Configuração da Tabela (Treeview)
+        colunas = ("ID", "Tipo de Evento", "Descrição", "Horário")
+        tabela = ttk.Treeview(janela_logs, columns=colunas, show="headings", height=12)
+
+        tabela.heading("ID", text="ID")
+        tabela.heading("Tipo de Evento", text="Tipo de Evento")
+        tabela.heading("Descrição", text="Descrição do Ocorrido")
+        tabela.heading("Horário", text="Horário")
+
+        tabela.column("ID", width=40, anchor="center")
+        tabela.column("Tipo de Evento", width=140, anchor="center")
+        tabela.column("Descrição", width=300, anchor="w")
+        tabela.column("Horário", width=130, anchor="center")
+
+        # Puxa os dados do banco e insere na tabela
+        dados_logs = LogRepository.listar_todos()
+        for log in dados_logs:
+            tabela.insert("", "end", values=log)
+
+        tabela.pack(pady=10, padx=10, fill="both", expand=True)
+
+        # Botão para fechar
+        btn_fechar = ctk.CTkButton(janela_logs, text="Fechar", fg_color="gray40", command=janela_logs.destroy)
+        btn_fechar.pack(pady=10)

@@ -5,6 +5,8 @@ from views.componentes.painel_parametros import PainelParametros
 from views.componentes.dashboard_gui import DashboardGUI
 from controllers.sensor_controller import SensorController
 from controllers.experimento_controller import ExperimentoController
+from tkinter import ttk
+from models.log_repository import LogRepository
 
 class MainView(ctk.CTk):
     def __init__(self):
@@ -26,7 +28,13 @@ class MainView(ctk.CTk):
         self.grid_columnconfigure(1, weight=3)
         self.grid_rowconfigure(0, weight=1)
 
-        self.painel_esq = PainelParametros(self, self.substancias_predefinidas, lambda s: None)
+        self.painel_esq = PainelParametros(
+            self,
+            self.substancias_predefinidas,
+            lambda s: None,
+            cmd_historico=self._abrir_historico,
+            cmd_excel=self._exportar_excel,
+            cmd_logs=self._abrir_janela_logs)
         self.painel_esq.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
         self._criar_painel_direito()
@@ -307,11 +315,21 @@ class MainView(ctk.CTk):
         self.after(1000, self._loop_telemetria)
 
     def acionar_emergencia_visual(self):
-        """Atualiza a interface para o estado crítico de emergência detetado pelo banco/trigger."""
+        """Atualiza a interface para o estado crítico de emergência e exibe um alerta visual."""
+        # 1. Muda a cor e o texto do rótulo de status (ajuste o nome do seu widget se for diferente)
         self.lbl_estado.configure(text="ESTADO: EMERGÊNCIA", text_color="red")
-        self.painel_esq.btn_iniciar.configure(state="normal")
-        self.painel_esq.btn_pausar.configure(state="disabled")
-        self.painel_esq.btn_parar.configure(state="disabled")
+
+        # 2. Controla os botões do painel lateral (ex: libera o iniciar, desativa pausar/parar)
+        if hasattr(self, 'painel_esq'):
+            self.painel_esq.btn_iniciar.configure(state="normal")
+            self.painel_esq.btn_pausar.configure(state="disabled")
+            self.painel_esq.btn_parar.configure(state="disabled")
+
+        # 3. Exibe o pop-up de aviso na tela para o usuário
+        messagebox.showwarning(
+            "⚠️ Alerta de Emergência",
+            "Temperatura fora da faixa segura (0°C a 100°C)! O experimento foi interrompido."
+        )
 
     def _ao_clicar_atualizar(self):
         """Recolhe os dados editados da tela e atualiza o registo ativo no banco."""
@@ -378,3 +396,40 @@ class MainView(ctk.CTk):
         self.painel_esq.btn_parar.configure(state="disabled")
 
         messagebox.showinfo("Novo Ensaio", "Ambiente limpo! Insira os dados para iniciar um novo experimento.")
+
+    def _abrir_janela_logs(self):
+        """Abre uma janela pop-up estilizada com a tabela de logs de alerta."""
+        janela_logs = ctk.CTkToplevel(self)
+        janela_logs.title("Histórico de Alertas e Emergências")
+        janela_logs.geometry("650x400")
+        janela_logs.grab_set()  # Mantém o foco na janela
+
+        # Título da janela
+        lbl_titulo = ctk.CTkLabel(janela_logs, text="📋 Registros de Alerta do Sistema",
+                                  font=ctk.CTkFont(size=16, weight="bold"))
+        lbl_titulo.pack(pady=10)
+
+        # Configuração da Tabela (Treeview)
+        colunas = ("ID", "Tipo de Evento", "Descrição", "Horário")
+        tabela = ttk.Treeview(janela_logs, columns=colunas, show="headings", height=12)
+
+        tabela.heading("ID", text="ID")
+        tabela.heading("Tipo de Evento", text="Tipo de Evento")
+        tabela.heading("Descrição", text="Descrição do Ocorrido")
+        tabela.heading("Horário", text="Horário")
+
+        tabela.column("ID", width=40, anchor="center")
+        tabela.column("Tipo de Evento", width=140, anchor="center")
+        tabela.column("Descrição", width=300, anchor="w")
+        tabela.column("Horário", width=130, anchor="center")
+
+        # Puxa os dados do banco e insere na tabela
+        dados_logs = LogRepository.listar_todos()
+        for log in dados_logs:
+            tabela.insert("", "end", values=log)
+
+        tabela.pack(pady=10, padx=10, fill="both", expand=True)
+
+        # Botão para fechar
+        btn_fechar = ctk.CTkButton(janela_logs, text="Fechar", fg_color="gray40", command=janela_logs.destroy)
+        btn_fechar.pack(pady=10)

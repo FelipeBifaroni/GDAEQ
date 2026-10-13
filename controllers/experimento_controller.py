@@ -2,6 +2,8 @@ import pandas as pd
 from datetime import datetime
 from models.domain import ConexaoSerial, Experimento, Professor, Turma, Substancia, ExperimentoSubstancia, ParametroSimulacao, DadoGrafico
 from models.repository import ExperimentoRepository
+from models.domain import LogAlerta
+from models.log_repository import LogRepository
 
 
 
@@ -113,13 +115,29 @@ class ExperimentoController:
                         temp_simulada=ponto["temp_simulada"]
                     )
                 except Exception as e:
-                    print(f"⚠️ Alerta da Trigger de Segurança do Banco: {e}")
+                    erro_str = str(e)
+                    print(f"⚠️ Alerta da Trigger de Segurança do Banco: {erro_str}")
 
-                    if "fora da faixa operacional" in str(e):
-                        # 1. Executa a rotina de emergência interna
+                    if "fora da faixa operacional" in erro_str or "ABORT" in erro_str:
+
+                        # 1. GRAVA O ALERTA NA TABELA LogAlerta DO BANCO
+                        try:
+                            from models.domain import LogAlerta
+                            from models.log_repository import LogRepository
+
+                            novo_log = LogAlerta(
+                                id_log=None,
+                                tipo_evento="EMERGENCIA_TEMPERATURA",
+                                descricao=f"Temperatura crítica ({ponto['temp_real']}°C) bloqueada pela Trigger."
+                            )
+                            LogRepository.salvar(novo_log)
+                        except Exception as log_err:
+                            print(f"❌ Erro ao salvar log no banco: {log_err}")
+
+                        # 2. Executa a rotina de emergência interna
                         self.interromper_emergencia()
 
-                        # 2. Desliga a flag para o loop gráfico parar
+                        # 3. Desliga a flag para o loop gráfico parar
                         self.executando = False
 
                         return {
@@ -356,3 +374,29 @@ class ExperimentoController:
             self.experimento_id_db = None
 
         return sucesso
+
+    def verificar_e_processar_temperatura(self, temp_atual: float):
+        """Verifica se a temperatura está na faixa segura (0°C a 100°C)."""
+
+        if temp_atual < 0.0 or temp_atual > 100.0:
+            # 1. Define o texto descritivo do problema
+            msg_erro = f"Temperatura crítica detectada: {temp_atual}°C (Fora da faixa 0-100°C)"
+
+            # 2. Cria o objeto usando a sua classe LogAlerta
+            novo_log = LogAlerta(
+                id_log=None,
+                tipo_evento="EMERGENCIA_TEMPERATURA",
+                descricao=msg_erro
+            )
+
+            # 3. Salva no banco de dados SQLite
+            LogRepository.salvar(novo_log)
+
+            # 4. Atualiza o estado do modelo e avisa a interface visual
+            self.model.estado = "EMERGENCIA"
+            self.view.acionar_emergencia_visual()
+
+        else:
+            # Fluxo normal de funcionamento e atualização do gráfico
+            self.atualizar_fluxo_normal(temp_atual)
+
