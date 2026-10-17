@@ -14,7 +14,7 @@ class PainelParametros(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
 
         # ----------------------------------------------------
-        # 1. BARRA SUPERIOR DE AÇÕES GLOBAIS (Histórico e Excel)
+        # 1. BARRA SUPERIOR DE AÇÕES GLOBAIS (Histórico, Logs e Excel)
         # ----------------------------------------------------
         self.frame_topo_acoes = ctk.CTkFrame(self, fg_color="gray20", corner_radius=6)
         self.frame_topo_acoes.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="ew")
@@ -31,14 +31,12 @@ class PainelParametros(ctk.CTkFrame):
         )
         self.btn_excel.pack(side="right", padx=5, pady=6)
 
-
+        # O botão agora executa a função cmd_logs injetada pelo Controller
         self.btn_logs = ctk.CTkButton(
             self.frame_topo_acoes, text="📋 Alertas", fg_color="#b22222", hover_color="#8b0000",
             width=100, height=26, font=ctk.CTkFont(size=12), command=cmd_logs
         )
         self.btn_logs.pack(side="left", expand=True, padx=5, pady=6)
-
-
 
         # ----------------------------------------------------
         # 2. ÁREA SCROLLÁVEL DE PARÂMETROS E CONTROLES DO ENSAIO
@@ -88,7 +86,7 @@ class PainelParametros(ctk.CTkFrame):
         self.btn_iniciar.pack(fill="x", padx=10, pady=4)
 
         self.btn_pausar = ctk.CTkButton(self.scroll_params, text="Pausar / Retomar", fg_color="orange",
-                                        state="disabled")
+                                        state="disabled", command=self._ao_clicar_pausa)
         self.btn_pausar.pack(fill="x", padx=10, pady=4)
 
         self.btn_parar = ctk.CTkButton(self.scroll_params, text="Interromper Emergência", fg_color="red",
@@ -126,7 +124,6 @@ class PainelParametros(ctk.CTkFrame):
     def _ao_alterar_substancia(self, escolha: str):
         if escolha in self.substancias_predefinidas:
             subst = self.substancias_predefinidas[escolha]
-            # Compatibilidade caso o preset seja objeto ou dicionário (sem mexer em combo_estado)
             if isinstance(subst, dict):
                 self._set_text(self.txt_subst_nome, subst["nome"])
                 self._set_text(self.txt_subst_formula, subst["formula"])
@@ -143,6 +140,17 @@ class PainelParametros(ctk.CTkFrame):
             self._set_text(self.txt_massa_total, "100.0")
             self.on_selecionar_substancia(escolha)
 
+    def _ao_clicar_pausa(self):
+        if hasattr(self.master, "alternar_pausa_experimento"):
+            self.master.alternar_pausa_experimento()
+
+    def atualizar_estado_botao_pausa(self, pausado: bool):
+        """Altera o texto e a cor do botão de pausa visualmente para o utilizador."""
+        if pausado:
+            self.btn_pausar.configure(text="Retomar Ensaio", fg_color="#28a745")
+        else:
+            self.btn_pausar.configure(text="Pausar Ensaio", fg_color="orange")
+
     def _set_text(self, entry: ctk.CTkEntry, valor: str):
         entry.configure(state="normal", fg_color=("#F9F9F9", "#343638"))
         entry.delete(0, "end")
@@ -150,11 +158,9 @@ class PainelParametros(ctk.CTkFrame):
         if valor is not None and str(valor).strip() != "" and str(valor).strip() != "0.0":
             entry.insert(0, str(valor))
         else:
-            # Força o componente a atualizar o desenho do placeholder na tela
             entry.focus_set()
             entry.selection_clear()
 
-        # Retira o foco para que o campo não fique selecionado ao carregar
         self.focus_set()
 
     def obter_dados_formulario(self) -> dict:
@@ -176,7 +182,6 @@ class PainelParametros(ctk.CTkFrame):
         }
 
     def preencher_formulario(self, dados: dict):
-        """Preenche todos os campos do painel com os dados de um experimento carregado."""
         self._set_text(self.txt_nome_exp, dados.get("nome_exp", ""))
         self._set_text(self.txt_professor, dados.get("professor", ""))
         self._set_text(self.txt_turma, dados.get("turma", ""))
@@ -189,79 +194,23 @@ class PainelParametros(ctk.CTkFrame):
 
         self._set_text(self.txt_temp_ini, str(dados.get("temp_ini", "")))
         self._set_text(self.txt_massa_total, str(dados.get("massa_total", "")))
-        self._set_text(self.txt_porta_com, dados.get("porta_com", ""))
+        self._set_text(self.txt_porta_com, str(dados.get("porta_com", "")))
 
     def bloquear_parametros_fisicos(self):
-        """Bloqueia a edição dos campos físicos, estequiométricos e o botão de tara (histórico)."""
         campos_para_bloquear = [
-            self.txt_massa_molar,
-            self.txt_massa,
-            self.txt_entalpia,
-            self.txt_temp_ini,
-            self.txt_massa_total
+            self.txt_massa_molar, self.txt_massa, self.txt_entalpia,
+            self.txt_temp_ini, self.txt_massa_total
         ]
         for campo in campos_para_bloquear:
             campo.configure(state="normal")
-            campo.configure(
-                state="disabled",
-                fg_color="gray25",
-                text_color="#FFFFFF"
-            )
+            campo.configure(state="disabled", fg_color="gray25", text_color="#FFFFFF")
         self.btn_calibrar.configure(state="disabled", fg_color="gray30")
 
     def liberar_parametros_fisicos(self):
-        """Libera a edição dos campos físicos e reativa o botão de tara (novo ensaio)."""
         campos_para_liberar = [
-            self.txt_massa_molar,
-            self.txt_massa,
-            self.txt_entalpia,
-            self.txt_temp_ini,
-            self.txt_massa_total
+            self.txt_massa_molar, self.txt_massa, self.txt_entalpia,
+            self.txt_temp_ini, self.txt_massa_total
         ]
         for campo in campos_para_liberar:
-            campo.configure(
-                state="normal",
-                fg_color=("#F9F9F9", "#343638"),
-                text_color=("#000000", "#FFFFFF")
-            )
+            campo.configure(state="normal", fg_color=("#F9F9F9", "#343638"), text_color=("#000000", "#FFFFFF"))
         self.btn_calibrar.configure(state="normal", fg_color="gray40")
-
-    def abrir_janela_logs(self):
-        """Abre uma janela pop-up estilizada com a tabela de logs de alerta do banco."""
-        from tkinter import ttk
-        from models.log_repository import LogRepository
-
-        janela_logs = ctk.CTkToplevel(self)
-        janela_logs.title("Histórico de Alertas e Emergências")
-        janela_logs.geometry("650x400")
-        janela_logs.grab_set()  # Mantém o foco na janela de logs
-
-        # Título da janela
-        lbl_titulo = ctk.CTkLabel(janela_logs, text="📋 Registros de Alerta e Anomalias",
-                                  font=ctk.CTkFont(size=16, weight="bold"))
-        lbl_titulo.pack(pady=10)
-
-        # Configuração da Tabela (Treeview)
-        colunas = ("ID", "Tipo de Evento", "Descrição", "Horário")
-        tabela = ttk.Treeview(janela_logs, columns=colunas, show="headings", height=12)
-
-        tabela.heading("ID", text="ID")
-        tabela.heading("Tipo de Evento", text="Tipo de Evento")
-        tabela.heading("Descrição", text="Descrição do Ocorrido")
-        tabela.heading("Horário", text="Horário")
-
-        tabela.column("ID", width=40, anchor="center")
-        tabela.column("Tipo de Evento", width=140, anchor="center")
-        tabela.column("Descrição", width=300, anchor="w")
-        tabela.column("Horário", width=130, anchor="center")
-
-        # Puxa os dados do banco e insere na tabela
-        dados_logs = LogRepository.listar_todos()
-        for log in dados_logs:
-            tabela.insert("", "end", values=log)
-
-        tabela.pack(pady=10, padx=10, fill="both", expand=True)
-
-        # Botão para fechar
-        btn_fechar = ctk.CTkButton(janela_logs, text="Fechar", fg_color="gray40", command=janela_logs.destroy)
-        btn_fechar.pack(pady=10)

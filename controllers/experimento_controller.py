@@ -389,14 +389,16 @@ class ExperimentoController:
                 descricao=msg_erro
             )
 
-            # 3. Salva no banco de dados SQLite
-            LogRepository.salvar(novo_log)
+            # 3. Salva no banco de dados SQLite via repositório
+            try:
+                LogRepository.salvar(novo_log)
+            except Exception as log_err:
+                print(f"❌ Erro ao salvar log no banco: {log_err}")
 
-            # 4. Atualiza o estado do modelo e avisa a interface visual
-            self.model.estado = "EMERGENCIA"
-            self.view.acionar_emergencia_visual()
+            # 4. Aciona a rotina de interrupção de emergência estruturada no Controller
+            self.interromper_emergencia()
 
         else:
-            # Fluxo normal de funcionamento e atualização do gráfico
-            self.atualizar_fluxo_normal(temp_atual)
+            # Fluxo normal de funcionamento
+            pass
 
