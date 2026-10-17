@@ -230,11 +230,12 @@ class ExperimentoRepository:
     def listar_todos():
         """Retorna todos os experimentos para o histórico."""
         sql = """
-              SELECT e.id, e.nome, e.data_realizacao, p.nome
-              FROM Experimento e
-                       LEFT JOIN Professor p ON e.professor_id = p.id
-              ORDER BY e.id DESC; \
-              """
+                  SELECT e.id, e.nome, e.data_realizacao, p.nome, t.nome
+                  FROM Experimento e
+                  LEFT JOIN Professor p ON e.professor_id = p.id
+                  LEFT JOIN Turma t ON e.turma_id = t.id
+                  ORDER BY e.id DESC;
+                  """
         with conectar_bd() as conexao:
             cursor = conexao.cursor()
             cursor.execute(sql)

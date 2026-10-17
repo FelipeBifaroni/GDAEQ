@@ -179,53 +179,90 @@ class MainView(ctk.CTk):
     def _abrir_historico(self):
         janela_hist = ctk.CTkToplevel(self)
         janela_hist.title("Histórico de Experimentos")
-        janela_hist.geometry("780x500")
+        janela_hist.geometry("850x550")
         janela_hist.grab_set()
 
-        ctk.CTkLabel(janela_hist, text="Experimentos Gravados no Banco de Dados",
-                     font=ctk.CTkFont(size=18, weight="bold")).pack(pady=15)
+        ctk.CTkLabel(janela_hist, text="Histórico de Experimentos Gravados",
+                     font=ctk.CTkFont(size=18, weight="bold")).pack(pady=10)
+
+        # --- BARRA DE PESQUISA ---
+        frame_busca = ctk.CTkFrame(janela_hist, fg_color="transparent")
+        frame_busca.pack(padx=20, pady=5, fill="x")
+
+        ctk.CTkLabel(frame_busca, text="🔍 Filtrar:", font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=5)
+
+        entry_pesquisa = ctk.CTkEntry(frame_busca,
+                                      placeholder_text="Digite o nome do experimento, professor ou turma...", width=450)
+        entry_pesquisa.pack(side="left", padx=5, fill="x", expand=True)
 
         # Cabeçalho da Tabela
         header_frame = ctk.CTkFrame(janela_hist, fg_color="gray25", height=35)
-        header_frame.pack(padx=20, pady=(0, 5), fill="x")
+        header_frame.pack(padx=20, pady=(10, 5), fill="x")
 
-        ctk.CTkLabel(header_frame, text="ID", width=40, font=ctk.CTkFont(weight="bold")).pack(side="left", padx=5)
-        ctk.CTkLabel(header_frame, text="Nome do Ensaio", width=240, anchor="w", font=ctk.CTkFont(weight="bold")).pack(
+        ctk.CTkLabel(header_frame, text="ID", width=30, font=ctk.CTkFont(weight="bold")).pack(side="left", padx=5)
+        ctk.CTkLabel(header_frame, text="Nome do Ensaio", width=200, anchor="w", font=ctk.CTkFont(weight="bold")).pack(
             side="left", padx=5)
-        ctk.CTkLabel(header_frame, text="Data", width=130, font=ctk.CTkFont(weight="bold")).pack(side="left", padx=5)
-        ctk.CTkLabel(header_frame, text="Ação", width=120, font=ctk.CTkFont(weight="bold")).pack(side="right", padx=10)
+        ctk.CTkLabel(header_frame, text="Professor", width=140, anchor="w", font=ctk.CTkFont(weight="bold")).pack(
+            side="left", padx=5)
+        ctk.CTkLabel(header_frame, text="Turma", width=100, anchor="w", font=ctk.CTkFont(weight="bold")).pack(
+            side="left", padx=5)
+        ctk.CTkLabel(header_frame, text="Ação", width=190, font=ctk.CTkFont(weight="bold")).pack(side="right", padx=10)
 
-        # Área Scrollável corrigida
-        frame_lista = ctk.CTkScrollableFrame(janela_hist, width=720, height=340)
+        # Área Scrollável onde ficam os itens
+        frame_lista = ctk.CTkScrollableFrame(janela_hist, width=790, height=340)
         frame_lista.pack(padx=20, pady=5, fill="both", expand=True)
 
-        historico = self.controller.listar_historico_banco()
-        if not historico:
-            ctk.CTkLabel(frame_lista, text="Nenhum experimento encontrado.", text_color="gray").pack(pady=20)
-            return
+        todos_experimentos = self.controller.listar_historico_banco()
 
-        for exp in historico:
-            item_frame = ctk.CTkFrame(frame_lista, fg_color="gray17", corner_radius=6)
-            item_frame.pack(fill="x", pady=4, ipady=4)
+        def popular_tabela(dados_filtrados):
+            for widget in frame_lista.winfo_children():
+                widget.destroy()
 
-            ctk.CTkLabel(item_frame, text=str(exp["id"]), width=40).pack(side="left", padx=5)
-            ctk.CTkLabel(item_frame, text=exp["nome"], width=240, anchor="w").pack(side="left", padx=5)
-            ctk.CTkLabel(item_frame, text=str(exp["data"]), width=130).pack(side="left", padx=5)
+            if not dados_filtrados:
+                ctk.CTkLabel(frame_lista, text="Nenhum experimento encontrado.", text_color="gray").pack(pady=20)
+                return
 
-            # --- BOTÃO DE EXCLUIR COM CONFIRMAÇÃO ---
-            btn_excluir = ctk.CTkButton(
-                item_frame, text="🗑️ Excluir", width=90, fg_color="#a83232", hover_color="#7a2222",
-                command=lambda eid=exp["id"], nome=exp["nome"], j_hist=janela_hist: self._confirmar_e_excluir(eid, nome,
-                                                                                                              j_hist)
-            )
-            btn_excluir.pack(side="right", padx=5)
+            for exp in dados_filtrados:
+                item_frame = ctk.CTkFrame(frame_lista, fg_color="gray17", corner_radius=6)
+                item_frame.pack(fill="x", pady=4, ipady=4)
 
-            # Botão para carregar o experimento selecionado
-            btn_carregar = ctk.CTkButton(
-                item_frame, text="📂 Carregar", width=100, fg_color="#1f538d",
-                command=lambda eid=exp["id"]: self._carregar_e_fechar_historico(eid, janela_hist)
-            )
-            btn_carregar.pack(side="right", padx=10)
+                ctk.CTkLabel(item_frame, text=str(exp["id"]), width=30).pack(side="left", padx=5)
+                ctk.CTkLabel(item_frame, text=exp["nome"], width=200, anchor="w").pack(side="left", padx=5)
+                ctk.CTkLabel(item_frame, text=exp["professor"], width=140, anchor="w").pack(side="left", padx=5)
+                ctk.CTkLabel(item_frame, text=exp["turma"], width=100, anchor="w").pack(side="left", padx=5)
+
+                # Botão de Excluir
+                btn_excluir = ctk.CTkButton(
+                    item_frame, text="🗑️ Excluir", width=80, fg_color="#a83232", hover_color="#7a2222",
+                    command=lambda eid=exp["id"], nome=exp["nome"], j_hist=janela_hist: self._confirmar_e_excluir(eid,
+                                                                                                                  nome,
+                                                                                                                  j_hist)
+                )
+                btn_excluir.pack(side="right", padx=5)
+
+                # Botão para Carregar
+                btn_carregar = ctk.CTkButton(
+                    item_frame, text="📂 Carregar", width=90, fg_color="#1f538d",
+                    command=lambda eid=exp["id"]: self._carregar_e_fechar_historico(eid, janela_hist)
+                )
+                btn_carregar.pack(side="right", padx=5)
+
+        def filtrar(*args):
+            termo = entry_pesquisa.get().strip().lower()
+            if not termo:
+                popular_tabela(todos_experimentos)
+                return
+
+            filtrados = [
+                exp for exp in todos_experimentos
+                if termo in exp["nome"].lower()
+                   or termo in exp["professor"].lower()
+                   or termo in exp["turma"].lower()
+            ]
+            popular_tabela(filtrados)
+
+        entry_pesquisa.bind("<KeyRelease>", filtrar)
+        popular_tabela(todos_experimentos)
 
     def _carregar_e_fechar_historico(self, experimento_id, janela):
         sucesso = self.controller.carregar_experimento_por_id(experimento_id)

@@ -237,7 +237,8 @@ class ExperimentoController:
                 "id": linha[0],
                 "nome": linha[1],
                 "data": linha[2],
-                "professor": linha[3] or "N/A"
+                "professor": linha[3] or "N/A",
+                "turma": linha[4] if len(linha) > 4 and linha[4] else "N/A"
             })
         return historico
 
