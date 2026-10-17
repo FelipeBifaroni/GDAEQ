@@ -22,6 +22,18 @@ class ExperimentoController:
         prof_id_real = ExperimentoRepository.obter_ou_criar_professor(dados_form["professor"])
         turma_id_real = ExperimentoRepository.obter_ou_criar_turma(dados_form["turma"])
 
+        # === VERIFICAR DUPLICIDADE ANTES DE INICIAR QUALQUER COISA ===
+        if ExperimentoRepository.existe_experimento_igual(
+                nome=self.experimento.nome,
+                professor_id=prof_id_real,
+                turma_id=turma_id_real,
+                descricao=self.experimento.descricao
+        ):
+            raise ValueError(
+                "Já existe um experimento com esses mesmos dados."
+            )
+        # ======================================================================
+
         subst_id_real = ExperimentoRepository.obter_ou_criar_substancia(
             nome=dados_form["subst_nome"],
             formula=dados_form["subst_formula"],
@@ -60,25 +72,15 @@ class ExperimentoController:
         self.experimento.conexao_serial.porta_com = dados_form["porta_com"]
         self.experimento.conexao_serial.conectar()
 
-        # Inicia o cálculo
+        # Inicia o cálculo APÓS todas as validações passarem com sucesso
         self.experimento.iniciar_ensaio()
-
-        if ExperimentoRepository.existe_experimento_igual(
-                nome=self.experimento.nome,
-                professor_id=prof_id_real,
-                turma_id=turma_id_real,
-                descricao=self.experimento.descricao
-        ):
-            raise ValueError(
-                "Já existe um experimento com esses mesmos dados."
-            )
 
         # 2. PERSISTÊNCIA COM OS IDS REAIS
         self.experimento_id_db = ExperimentoRepository.salvar_experimento_inicial(
             nome=self.experimento.nome,
             tipo_reacao=self.experimento.tipo_reacao if hasattr(self.experimento, 'tipo_reacao') else "Exotérmica",
-            turma_id=turma_id_real,      # <--- Usa o ID retornado do banco
-            professor_id=prof_id_real,  # <--- Usa o ID retornado do banco
+            turma_id=turma_id_real,
+            professor_id=prof_id_real,
             descricao=self.experimento.descricao
         )
 
