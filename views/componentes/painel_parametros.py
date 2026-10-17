@@ -106,9 +106,24 @@ class PainelParametros(ctk.CTkFrame):
     def _divisor(self, master):
         ctk.CTkFrame(master, height=2, fg_color="gray30").pack(fill="x", padx=10, pady=10)
 
-    def _entry(self, master, placeholder: str) -> ctk.CTkEntry:
-        entry = ctk.CTkEntry(master, placeholder_text=placeholder)
-        entry.pack(fill="x", padx=10, pady=4)
+    def _entry(self, parent, label_text, placeholder_text=""):
+        # Criamos um container transparente para alinhar o rótulo e o campo juntos
+        frame_campo = ctk.CTkFrame(parent, fg_color="transparent")
+        frame_campo.pack(fill="x", padx=10, pady=4)
+
+        # 1. Rótulo fixo (Sempre visível por cima do campo)
+        lbl = ctk.CTkLabel(
+            frame_campo,
+            text=label_text,
+            anchor="w",
+            font=ctk.CTkFont(size=11, weight="bold")
+        )
+        lbl.pack(fill="x", padx=2, pady=(0, 2))
+
+        # 2. Campo de Entrada com o placeholder opcional
+        entry = ctk.CTkEntry(frame_campo, placeholder_text=placeholder_text)
+        entry.pack(fill="x")
+
         return entry
 
     def _ao_alterar_substancia(self, escolha: str):
