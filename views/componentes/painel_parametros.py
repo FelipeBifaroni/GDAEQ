@@ -1,4 +1,5 @@
 import customtkinter as ctk
+import re
 
 
 class PainelParametros(ctk.CTkFrame):
@@ -8,118 +9,141 @@ class PainelParametros(ctk.CTkFrame):
         self.substancias_predefinidas = substancias_predefinidas
         self.on_selecionar_substancia = on_selecionar_substancia
 
-        # Configurar grid principal deste painel (Linha 0: Barra de Topo / Linha 1: Scroll com parâmetros)
-        self.grid_rowconfigure(0, weight=0)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=0)  # Barra Superior
+        self.grid_rowconfigure(1, weight=1)  # Conteúdo em Grid (expande para ocupar a tela)
+        self.grid_rowconfigure(2, weight=0)  # Rodapé Fixo
         self.grid_columnconfigure(0, weight=1)
 
         # ----------------------------------------------------
-        # 1. BARRA SUPERIOR DE AÇÕES GLOBAIS (Histórico, Logs e Excel)
+        # 1. BARRA SUPERIOR DE AÇÕES GLOBAIS (Com fontes maiores)
         # ----------------------------------------------------
         self.frame_topo_acoes = ctk.CTkFrame(self, fg_color="gray20", corner_radius=6)
         self.frame_topo_acoes.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="ew")
 
         self.btn_historico = ctk.CTkButton(
             self.frame_topo_acoes, text="📁 Histórico", fg_color="navy",
-            width=100, height=26, font=ctk.CTkFont(size=12), command=cmd_historico
+            width=100, height=32, font=ctk.CTkFont(size=13, weight="bold"), command=cmd_historico
         )
         self.btn_historico.pack(side="left", padx=5, pady=6)
 
         self.btn_excel = ctk.CTkButton(
             self.frame_topo_acoes, text="📊 Exportar", fg_color="#107c41",
-            width=100, height=26, font=ctk.CTkFont(size=12), command=cmd_excel
+            width=100, height=32, font=ctk.CTkFont(size=13, weight="bold"), command=cmd_excel
         )
         self.btn_excel.pack(side="right", padx=5, pady=6)
 
-        # O botão agora executa a função cmd_logs injetada pelo Controller
         self.btn_logs = ctk.CTkButton(
             self.frame_topo_acoes, text="📋 Alertas", fg_color="#b22222", hover_color="#8b0000",
-            width=100, height=26, font=ctk.CTkFont(size=12), command=cmd_logs
+            width=100, height=32, font=ctk.CTkFont(size=13, weight="bold"), command=cmd_logs
         )
         self.btn_logs.pack(side="left", expand=True, padx=5, pady=6)
 
         # ----------------------------------------------------
-        # 2. ÁREA SCROLLÁVEL DE PARÂMETROS E CONTROLES DO ENSAIO
+        # 2. CONTEÚDO PRINCIPAL (GRID EXPANSÍVEL)
         # ----------------------------------------------------
-        self.scroll_params = ctk.CTkScrollableFrame(self, corner_radius=6)
-        self.scroll_params.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
+        self.frame_grid = ctk.CTkFrame(self, fg_color="transparent")
+        self.frame_grid.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
 
-        # 1. Identificação do Ensaio
-        self._titulo(self.scroll_params, "Identificação do Experimento")
-        self.txt_nome_exp = self._entry(self.scroll_params, "Nome do Ensaio")
-        self.txt_professor = self._entry(self.scroll_params, "Nome do Professor")
-        self.txt_turma = self._entry(self.scroll_params, "Turma / Disciplina")
+        self.frame_grid.grid_columnconfigure(0, weight=1)
+        self.frame_grid.grid_columnconfigure(1, weight=1)
 
-        # 2. Dados da Substância
-        self._divisor(self.scroll_params)
-        self._titulo(self.scroll_params, "Dados da Substância")
+        # Faz as linhas do grid expandirem proporcionalmente para preencher a tela cheia
+        for i in range(12):
+            self.frame_grid.grid_rowconfigure(i, weight=1)
+
+        r = 0
+
+        # --- Identificação do Ensaio ---
+        self._lbl_secao(self.frame_grid, "Identificação do Experimento", row=r, columnspan=2)
+        r += 1
+        self.txt_nome_exp = self._entry_grid(self.frame_grid, "Nome do Ensaio", row=r, col=0, columnspan=2)
+        r += 1
+        self.txt_professor = self._entry_grid(self.frame_grid, "Nome do Professor", row=r, col=0)
+        self.txt_turma = self._entry_grid(self.frame_grid, "Turma / Disciplina", row=r, col=1)
+        r += 1
+
+        # --- Dados da Substância ---
+        self._lbl_secao(self.frame_grid, "Dados da Substância & Parâmetros", row=r, columnspan=2)
+        r += 1
+
         self.combo_subst = ctk.CTkOptionMenu(
-            self.scroll_params, values=list(substancias_predefinidas.keys()), command=self._ao_alterar_substancia
+            self.frame_grid, values=list(substancias_predefinidas.keys()), command=self._ao_alterar_substancia,
+            height=32, font=ctk.CTkFont(size=13)
         )
-        self.combo_subst.pack(fill="x", padx=10, pady=4)
+        self.combo_subst.grid(row=r, column=0, columnspan=2, padx=5, pady=4, sticky="ew")
+        r += 1
 
-        self.txt_subst_nome = self._entry(self.scroll_params, "Nome da Substância")
-        self.txt_subst_formula = self._entry(self.scroll_params, "Fórmula Química")
+        self.txt_subst_nome = self._entry_grid(self.frame_grid, "Nome da Substância", row=r, col=0)
+        self.txt_subst_formula = self._entry_grid(self.frame_grid, "Fórmula Química", row=r, col=1)
+        r += 1
 
-        self.txt_massa_molar = self._entry(self.scroll_params, "Massa Molar do Reagente Limitante (g/mol)")
-        self.txt_massa = self._entry(self.scroll_params, "Massa do Reagente (g)")
-        self.txt_entalpia = self._entry(self.scroll_params, "Entalpia ΔH (kJ/mol)")
+        self.txt_massa_molar = self._entry_grid(self.frame_grid, "Massa Molar (g/mol)", row=r, col=0)
+        self.txt_massa = self._entry_grid(self.frame_grid, "Massa Reagente (g)", row=r, col=1)
+        r += 1
 
-        # 3. Parâmetros Físicos
-        self._divisor(self.scroll_params)
-        self._titulo(self.scroll_params, "Parâmetros Físicos")
-        self.txt_temp_ini = self._entry(self.scroll_params, "Temp. Inicial (°C)")
-        self.txt_massa_total = self._entry(self.scroll_params, "Massa Total")
+        self.txt_entalpia = self._entry_grid(self.frame_grid, "Entalpia ΔH (kJ/mol)", row=r, col=0)
+        self.txt_temp_ini = self._entry_grid(self.frame_grid, "Temp. Inicial (°C)", row=r, col=1)
+        r += 1
 
-        # 4. Conexão Hardware
-        self._divisor(self.scroll_params)
-        self._titulo(self.scroll_params, "Conexão Hardware (Arduino)")
-        self.txt_porta_com = self._entry(self.scroll_params, "Porta COM (ex: COM3)")
+        self.txt_massa_total = self._entry_grid(self.frame_grid, "Massa Total (g)", row=r, col=0)
+        self.txt_porta_com = self._entry_grid(self.frame_grid, "Porta COM", row=r, col=1)
+        r += 1
 
-        # 5. Botões de Ação Direta do Ensaio
-        self._divisor(self.scroll_params)
+        # ----------------------------------------------------
+        # 3. RODAPÉ FIXO COM BOTAIS GRANDES E DESTACADOS
+        # ----------------------------------------------------
+        self.frame_rodape = ctk.CTkFrame(self, fg_color="gray20", corner_radius=6)
+        self.frame_rodape.grid(row=2, column=0, padx=10, pady=(5, 10), sticky="ew")
 
-        self.btn_calibrar = ctk.CTkButton(self.scroll_params, text="Calibrar Sensores (Tara)", fg_color="gray40")
-        self.btn_calibrar.pack(fill="x", padx=10, pady=4)
+        btn_font = ctk.CTkFont(size=14, weight="bold")
 
-        self.btn_iniciar = ctk.CTkButton(self.scroll_params, text="Iniciar", fg_color="green")
+        self.btn_calibrar = ctk.CTkButton(self.frame_rodape, text="Calibrar Sensores (Tara)", fg_color="gray40",
+                                          height=36, font=btn_font)
+        self.btn_calibrar.pack(fill="x", padx=10, pady=(8, 4))
+
+        self.btn_iniciar = ctk.CTkButton(self.frame_rodape, text="Iniciar", fg_color="green", height=36, font=btn_font)
         self.btn_iniciar.pack(fill="x", padx=10, pady=4)
 
-        self.btn_pausar = ctk.CTkButton(self.scroll_params, text="Pausar / Retomar", fg_color="orange",
-                                        state="disabled", command=self._ao_clicar_pausa)
+        self.btn_pausar = ctk.CTkButton(self.frame_rodape, text="Pausar / Retomar", fg_color="orange",
+                                        state="disabled", command=self._ao_clicar_pausa, height=36, font=btn_font)
         self.btn_pausar.pack(fill="x", padx=10, pady=4)
 
-        self.btn_parar = ctk.CTkButton(self.scroll_params, text="Interromper Emergência", fg_color="red",
-                                       state="disabled")
-        self.btn_parar.pack(fill="x", padx=10, pady=(4, 15))
+        self.btn_parar = ctk.CTkButton(self.frame_rodape, text="Interromper Emergência", fg_color="red",
+                                       state="disabled", height=36, font=btn_font)
+        self.btn_parar.pack(fill="x", padx=10, pady=4)
 
         self.btn_atualizar = ctk.CTkButton(
-            self.scroll_params, text="💾 Salvar Alterações (Atualizar)", fg_color="#1f538d", hover_color="#14375e"
+            self.frame_rodape, text="💾 Salvar Alterações (Atualizar)", fg_color="#1f538d", hover_color="#14375e",
+            height=36, font=btn_font
         )
-        self.btn_atualizar.pack(fill="x", padx=10, pady=4)
+        self.btn_atualizar.pack(fill="x", padx=10, pady=(4, 8))
 
-    def _titulo(self, master, texto: str):
-        ctk.CTkLabel(master, text=texto, font=ctk.CTkFont(size=16, weight="bold")).pack(padx=10, pady=(10, 5))
+    def _lbl_secao(self, parent, texto: str, row: int, columnspan: int = 1):
+        lbl = ctk.CTkLabel(parent, text=texto, font=ctk.CTkFont(size=15, weight="bold"))
+        lbl.grid(row=row, column=0, columnspan=columnspan, padx=5, pady=(10, 4), sticky="w")
 
-    def _divisor(self, master):
-        ctk.CTkFrame(master, height=2, fg_color="gray30").pack(fill="x", padx=10, pady=10)
-
-    def _entry(self, parent, label_text, placeholder_text=""):
+    def _entry_grid(self, parent, label_text, row, col, columnspan=1):
         frame_campo = ctk.CTkFrame(parent, fg_color="transparent")
-        frame_campo.pack(fill="x", padx=10, pady=4)
+        frame_campo.grid(row=row, column=col, columnspan=columnspan, padx=5, pady=4, sticky="nsew")
 
         lbl = ctk.CTkLabel(
             frame_campo,
             text=label_text,
             anchor="w",
-            font=ctk.CTkFont(size=11, weight="bold")
+            font=ctk.CTkFont(size=13, weight="bold")  # Fonte bem legível para aulas
         )
         lbl.pack(fill="x", padx=2, pady=(0, 2))
 
-        entry = ctk.CTkEntry(frame_campo, placeholder_text=placeholder_text)
+        entry = ctk.CTkEntry(frame_campo, height=32, font=ctk.CTkFont(size=13))  # Caixas de texto maiores
         entry.pack(fill="x")
 
         return entry
+
+    def _limpar_espacos(self, texto: str) -> str:
+        """Remove espaços excessivos nas extremidades e compacta múltiplos espaços internos."""
+        if not texto:
+            return ""
+        return re.sub(r'\s+', ' ', texto).strip()
 
     def _ao_alterar_substancia(self, escolha: str):
         if escolha in self.substancias_predefinidas:
@@ -155,7 +179,6 @@ class PainelParametros(ctk.CTkFrame):
         """
         Controla a interatividade dos botões e campos com base no estado do experimento.
         """
-        # Todos os campos do formulário
         todos_campos = [
             self.txt_nome_exp, self.txt_professor, self.txt_turma,
             self.txt_subst_nome, self.txt_subst_formula,
@@ -163,12 +186,10 @@ class PainelParametros(ctk.CTkFrame):
             self.txt_temp_ini, self.txt_massa_total, self.txt_porta_com
         ]
 
-        # GARANTE QUE HISTÓRICO E EXCEL ESTÃO SEMPRE LIVRES PARA USO EM QUALQUER ESTADO!
         self.btn_historico.configure(state="normal")
         self.btn_excel.configure(state="normal")
 
         if status in ["Pausado", "Reagindo"]:
-            # Bloqueia absolutamente tudo durante a execução ou pausa (exceto Histórico e Excel acima)
             for campo in todos_campos:
                 campo.configure(state="disabled", fg_color="gray25", text_color="#FFFFFF")
 
@@ -185,7 +206,6 @@ class PainelParametros(ctk.CTkFrame):
                 self.btn_parar.configure(state="normal")
 
         elif status == "Finalizado":
-            # 1. BLOQUEIA PRIMEIRO OS PARÂMETROS FÍSICOS E TÉCNICOS
             campos_fisicos_e_tecnicos = [
                 self.txt_massa_molar, self.txt_massa, self.txt_entalpia,
                 self.txt_temp_ini, self.txt_massa_total, self.txt_porta_com
@@ -193,7 +213,6 @@ class PainelParametros(ctk.CTkFrame):
             for campo in campos_fisicos_e_tecnicos:
                 campo.configure(state="disabled", fg_color="gray25", text_color="#FFFFFF")
 
-            # 2. LIBERTA APENAS Nome exp, Professor, Turma, Nome substância, Fórmula química
             campos_permitidos_pos_ensaio = [
                 self.txt_nome_exp, self.txt_professor, self.txt_turma,
                 self.txt_subst_nome, self.txt_subst_formula
@@ -201,18 +220,15 @@ class PainelParametros(ctk.CTkFrame):
             for campo in campos_permitidos_pos_ensaio:
                 campo.configure(state="normal", fg_color=("#F9F9F9", "#343638"), text_color=("#000000", "#FFFFFF"))
 
-            # 3. Liberta o combobox, o botão de salvar alterações e o de iniciar (para novo ensaio se preferires)
             self.combo_subst.configure(state="normal")
-            self.btn_atualizar.configure(state="normal")  # Botão salvar alteração ativo!
+            self.btn_atualizar.configure(state="normal")
             self.btn_iniciar.configure(state="normal")
 
-            # Mantém os botões de controle direto do ensaio desativados
             self.btn_calibrar.configure(state="disabled", fg_color="gray30")
             self.btn_pausar.configure(state="disabled")
             self.btn_parar.configure(state="disabled")
 
         elif status == "Inativo":
-            # Estado inicial normal (tudo liberado para criar um novo ensaio)
             for campo in todos_campos:
                 campo.configure(state="normal", fg_color=("#F9F9F9", "#343638"), text_color=("#000000", "#FFFFFF"))
 
@@ -237,12 +253,12 @@ class PainelParametros(ctk.CTkFrame):
 
     def obter_dados_formulario(self) -> dict:
         return {
-            "nome_exp": self.txt_nome_exp.get(),
+            "nome_exp": self._limpar_espacos(self.txt_nome_exp.get()),
             "descricao": "",
-            "professor": self.txt_professor.get(),
-            "turma": self.txt_turma.get(),
-            "subst_nome": self.txt_subst_nome.get(),
-            "subst_formula": self.txt_subst_formula.get(),
+            "professor": self._limpar_espacos(self.txt_professor.get()),
+            "turma": self._limpar_espacos(self.txt_turma.get()),
+            "subst_nome": self._limpar_espacos(self.txt_subst_nome.get()),
+            "subst_formula": self._limpar_espacos(self.txt_subst_formula.get()),
             "estado_fisico": "Líquido",
             "massa_molar": float(self.txt_massa_molar.get() or 0),
             "entalpia": float(self.txt_entalpia.get() or 0),
@@ -250,7 +266,7 @@ class PainelParametros(ctk.CTkFrame):
             "temp_ini": float(self.txt_temp_ini.get() or 0),
             "massa_reagente": float(self.txt_massa.get() or 0),
             "massa_total": float(self.txt_massa_total.get() or 0),
-            "porta_com": self.txt_porta_com.get()
+            "porta_com": self._limpar_espacos(self.txt_porta_com.get())
         }
 
     def preencher_formulario(self, dados: dict):
