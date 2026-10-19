@@ -1,6 +1,13 @@
 import sqlite3
+import os
+from pathlib import Path
 
-DB_FILE = "GDAEQ.db"
+# Cria uma pasta oculta segura no perfil do utilizador (ex: C:\Users\NomeDoUsuario\.gdaeq)
+DIRETORIO_USUARIO = Path.home() / ".gdaeq"
+DIRETORIO_USUARIO.mkdir(parents=True, exist_ok=True)
+
+# Define o caminho completo e seguro para o banco de dados
+DB_FILE = str(DIRETORIO_USUARIO / "GDAEQ.db")
 
 def conectar_bd():
     """

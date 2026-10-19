@@ -157,13 +157,14 @@ class Experimento:
         self.logs_alerta.append(alerta)
 
     def proximo_ponto(self) -> dict | None:
-        if self.status != "Reagindo":
+        # Permite continuar gerando os cálculos e pontos mesmo com o ensaio pausado
+        if self.status not in ["Reagindo", "Pausado"]:
             return None
 
         self.tempo_decorrido += 1
         delta_t_passo = self.delta_t_calculado if self.tempo_decorrido <= 20 else 0.0
         base_temp = self.parametro_simulacao.temp_inicial + (
-                    (self.delta_t_calculado / 20.0) * min(self.tempo_decorrido, 20))
+                (self.delta_t_calculado / 20.0) * min(self.tempo_decorrido, 20))
 
         temp_fisica = self.conexao_serial.ler_dados_temp(base_temp)
         temp_modelo = self.gemeo_digital.calcular_proximo_passo(dt=1.0, delta_t_teorico=delta_t_passo)

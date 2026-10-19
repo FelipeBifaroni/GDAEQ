@@ -151,6 +151,78 @@ class PainelParametros(ctk.CTkFrame):
         else:
             self.btn_pausar.configure(text="Pausar Ensaio", fg_color="orange")
 
+    def atualizar_estado_botoes(self, status: str):
+        """
+        Controla a interatividade dos botões e campos com base no estado do experimento.
+        """
+        # Todos os campos do formulário
+        todos_campos = [
+            self.txt_nome_exp, self.txt_professor, self.txt_turma,
+            self.txt_subst_nome, self.txt_subst_formula,
+            self.txt_massa_molar, self.txt_massa, self.txt_entalpia,
+            self.txt_temp_ini, self.txt_massa_total, self.txt_porta_com
+        ]
+
+        # GARANTE QUE HISTÓRICO E EXCEL ESTÃO SEMPRE LIVRES PARA USO EM QUALQUER ESTADO!
+        self.btn_historico.configure(state="normal")
+        self.btn_excel.configure(state="normal")
+
+        if status in ["Pausado", "Reagindo"]:
+            # Bloqueia absolutamente tudo durante a execução ou pausa (exceto Histórico e Excel acima)
+            for campo in todos_campos:
+                campo.configure(state="disabled", fg_color="gray25", text_color="#FFFFFF")
+
+            self.combo_subst.configure(state="disabled")
+            self.btn_calibrar.configure(state="disabled", fg_color="gray30")
+            self.btn_atualizar.configure(state="disabled")
+
+            if status == "Pausado":
+                self.btn_pausar.configure(state="normal")
+                self.btn_parar.configure(state="normal")
+            else:
+                self.btn_iniciar.configure(state="disabled")
+                self.btn_pausar.configure(state="normal")
+                self.btn_parar.configure(state="normal")
+
+        elif status == "Finalizado":
+            # 1. BLOQUEIA PRIMEIRO OS PARÂMETROS FÍSICOS E TÉCNICOS
+            campos_fisicos_e_tecnicos = [
+                self.txt_massa_molar, self.txt_massa, self.txt_entalpia,
+                self.txt_temp_ini, self.txt_massa_total, self.txt_porta_com
+            ]
+            for campo in campos_fisicos_e_tecnicos:
+                campo.configure(state="disabled", fg_color="gray25", text_color="#FFFFFF")
+
+            # 2. LIBERTA APENAS Nome exp, Professor, Turma, Nome substância, Fórmula química
+            campos_permitidos_pos_ensaio = [
+                self.txt_nome_exp, self.txt_professor, self.txt_turma,
+                self.txt_subst_nome, self.txt_subst_formula
+            ]
+            for campo in campos_permitidos_pos_ensaio:
+                campo.configure(state="normal", fg_color=("#F9F9F9", "#343638"), text_color=("#000000", "#FFFFFF"))
+
+            # 3. Liberta o combobox, o botão de salvar alterações e o de iniciar (para novo ensaio se preferires)
+            self.combo_subst.configure(state="normal")
+            self.btn_atualizar.configure(state="normal")  # Botão salvar alteração ativo!
+            self.btn_iniciar.configure(state="normal")
+
+            # Mantém os botões de controle direto do ensaio desativados
+            self.btn_calibrar.configure(state="disabled", fg_color="gray30")
+            self.btn_pausar.configure(state="disabled")
+            self.btn_parar.configure(state="disabled")
+
+        elif status == "Inativo":
+            # Estado inicial normal (tudo liberado para criar um novo ensaio)
+            for campo in todos_campos:
+                campo.configure(state="normal", fg_color=("#F9F9F9", "#343638"), text_color=("#000000", "#FFFFFF"))
+
+            self.combo_subst.configure(state="normal")
+            self.btn_calibrar.configure(state="normal", fg_color="gray40")
+            self.btn_atualizar.configure(state="normal")
+            self.btn_iniciar.configure(state="normal")
+            self.btn_pausar.configure(state="disabled")
+            self.btn_parar.configure(state="disabled")
+
     def _set_text(self, entry: ctk.CTkEntry, valor: str):
         entry.configure(state="normal", fg_color=("#F9F9F9", "#343638"))
         entry.delete(0, "end")

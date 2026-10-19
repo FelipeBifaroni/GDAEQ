@@ -119,7 +119,7 @@ class MainView(ctk.CTk):
             delta_t = self.controller.iniciar_ensaio(dados)
             self.lbl_delta_t.configure(text=f"ΔT Teórico: {delta_t:.2f} °C")
             self.lbl_estado.configure(text="ESTADO: REAGINDO", text_color="lightgreen")
-
+            self.painel_esq.atualizar_estado_botoes("Reagindo")
             self.painel_esq.btn_iniciar.configure(state="disabled")
             self.painel_esq.btn_pausar.configure(state="normal")
             self.painel_esq.btn_parar.configure(state="normal")
@@ -129,21 +129,50 @@ class MainView(ctk.CTk):
             messagebox.showerror("Erro ao Iniciar", f"Verifique os campos inseridos:\n{str(e)}")
 
     def _pausar_ensaio(self):
+        # Verifica o estado atual do experimento antes de alternar
+        status_atual_exp = getattr(self.controller.experimento, "status", "")
+
+        # Se o utilizador está a tentar despausar, mas o experimento já terminou por trás dos panos:
+        if self.dashboard_gui.pausado and status_atual_exp == "Finalizado":
+            # Força o gráfico a sair do pause e renderizar tudo agora que foi retomado
+            self.dashboard_gui.alternar_pausa()
+
+            # Atualiza a interface diretamente para o estado Finalizado
+            self.lbl_estado.configure(text="ESTADO: FINALIZADO", text_color="cyan")
+            self.painel_esq.atualizar_estado_botao_pausa(False)
+            self.painel_esq.atualizar_estado_botoes("Finalizado")
+            return
+
+        # Comportamento normal de Pausa / Retomar durante o ensaio ativo
+        self.dashboard_gui.alternar_pausa()
+        esta_pausado = self.dashboard_gui.pausado
         novo_status = self.controller.pausar_ensaio()
 
-        if novo_status == "Pausado":
+        if esta_pausado:
             self.lbl_estado.configure(text="ESTADO: PAUSADO", text_color="orange")
-            # Muda o texto do botão para indicar que agora ele serve para retomar
-            self.painel_esq.btn_pausar.configure(text="Retomar", fg_color="#b28f00", hover_color="#8c7000")
+            self.painel_esq.atualizar_estado_botao_pausa(True)
+            self.painel_esq.atualizar_estado_botoes("Pausado")
         else:
             self.lbl_estado.configure(text="ESTADO: REAGINDO", text_color="lightgreen")
-            # Retorna o botão ao estado normal de pausa
-            self.painel_esq.btn_pausar.configure(text="Pausar", fg_color="orange", hover_color="#cc8400")
+            self.painel_esq.atualizar_estado_botao_pausa(False)
+            self.painel_esq.atualizar_estado_botoes("Reagindo")
 
     def _interromper_emergencia(self):
+        # 1. Executa a rotina de interrupção no controller
         self.controller.interromper_emergencia()
+
+        # 2. Atualiza a barra de status visual
         self.lbl_estado.configure(text="ESTADO: EMERGÊNCIA", text_color="red")
-        self.painel_esq.btn_iniciar.configure(state="normal")
+
+        # 3. Libera o botão de iniciar no formato "✨ Novo Experimento"
+        self.painel_esq.btn_iniciar.configure(
+            text="✨ Novo Experimento",
+            fg_color="#1f538d",  # Azul estilo histórico
+            hover_color="#14375e",
+            state="normal"
+        )
+
+        # 4. Desativa os botões de controle direto do ensaio
         self.painel_esq.btn_pausar.configure(state="disabled")
         self.painel_esq.btn_parar.configure(state="disabled")
 
@@ -265,6 +294,7 @@ class MainView(ctk.CTk):
         popular_tabela(todos_experimentos)
 
     def _carregar_e_fechar_historico(self, experimento_id, janela):
+        self.painel_esq.liberar_parametros_fisicos()
         sucesso = self.controller.carregar_experimento_por_id(experimento_id)
         if sucesso:
             # 1. Limpa e plota o gráfico
@@ -334,13 +364,20 @@ class MainView(ctk.CTk):
                 status_atual = ponto.get("status", "")
                 if status_atual == "Reagindo":
                     self.lbl_estado.configure(text="ESTADO: REAGINDO", text_color="lightgreen")
+
+
                 elif status_atual == "Finalizado":
+
+                    if self.dashboard_gui.pausado:
+                        return
+
                     self.lbl_estado.configure(text="ESTADO: FINALIZADO", text_color="cyan")
-                    self.painel_esq.btn_iniciar.configure(state="normal")
-                    self.painel_esq.btn_pausar.configure(state="disabled")
-                    self.painel_esq.btn_parar.configure(state="disabled")
+
+                    self.painel_esq.atualizar_estado_botao_pausa(False)
+
+                    self.painel_esq.atualizar_estado_botoes("Finalizado")
+
                 elif status_atual == "Emergência":
-                    # Tratamento reativo limpo feito diretamente na View
                     self.acionar_emergencia_visual()
 
                 if ponto.get("dado_obj"):
@@ -352,20 +389,34 @@ class MainView(ctk.CTk):
         self.after(1000, self._loop_telemetria)
 
     def acionar_emergencia_visual(self):
-        """Atualiza a interface para o estado crítico de emergência e exibe um alerta visual."""
-        # 1. Muda a cor e o texto do rótulo de status (ajuste o nome do seu widget se for diferente)
+        """Atualiza a interface para o estado crítico de emergência e libera a criação de um novo ensaio."""
+        # 1. Muda o estado visual para emergência em vermelho
         self.lbl_estado.configure(text="ESTADO: EMERGÊNCIA", text_color="red")
 
-        # 2. Controla os botões do painel lateral (ex: libera o iniciar, desativa pausar/parar)
+        # 2. Destrava os parâmetros físicos e libera todos os campos do formulário
         if hasattr(self, 'painel_esq'):
-            self.painel_esq.btn_iniciar.configure(state="normal")
+            self.painel_esq.liberar_parametros_fisicos()
+
+            # 3. Transforma o botão de iniciar em "✨ Novo Experimento" azul e ativo
+            self.painel_esq.btn_iniciar.configure(
+                text="✨ Novo Experimento",
+                fg_color="#1f538d",  # Azul estilo histórico
+                hover_color="#14375e",
+                state="normal"
+            )
+
+            # 4. Desativa os botões operacionais do ensaio interrompido
             self.painel_esq.btn_pausar.configure(state="disabled")
             self.painel_esq.btn_parar.configure(state="disabled")
 
-        # 3. Exibe o pop-up de aviso na tela para o usuário
+            # 5. Garante que os botões globais fiquem acessíveis
+            self.painel_esq.btn_historico.configure(state="normal")
+            self.painel_esq.btn_excel.configure(state="normal")
+
+        # 6. Exibe o aviso crítico ao usuário
         messagebox.showwarning(
             "⚠️ Alerta de Emergência",
-            "Temperatura fora da faixa segura (0°C a 100°C)! O experimento foi interrompido."
+            "Temperatura fora da faixa segura (0°C a 100°C)! O experimento foi interrompido por segurança."
         )
 
     def _ao_clicar_atualizar(self):
@@ -401,10 +452,20 @@ class MainView(ctk.CTk):
         """Reseta a interface e o controller para permitir criar um novo ensaio do zero."""
         self.controller.experimento_id_db = None
 
-        # Libera os campos físicos e o botão de tara que estavam bloqueados pelo histórico
+        # 1. DESTTRAVA ABSOLUTAMENTE TUDO (Libera os campos físicos e técnicos)
         self.painel_esq.liberar_parametros_fisicos()
 
-        # Limpa os campos do formulário
+        # 2. Libera também os campos de identificação e substância que podem ter ficado bloqueados
+        campos_parametros = [
+            self.painel_esq.txt_nome_exp, self.painel_esq.txt_professor, self.painel_esq.txt_turma,
+            self.painel_esq.txt_subst_nome, self.painel_esq.txt_subst_formula, self.painel_esq.txt_porta_com
+        ]
+        for campo in campos_parametros:
+            campo.configure(state="normal", fg_color=("#F9F9F9", "#343638"), text_color=("#000000", "#FFFFFF"))
+
+        self.painel_esq.combo_subst.configure(state="normal")
+
+        # 3. Limpa os campos do formulário
         campos_vazios = {
             "nome_exp": "", "professor": "", "turma": "",
             "subst_nome": "", "subst_formula": "",
@@ -415,14 +476,14 @@ class MainView(ctk.CTk):
         self.painel_esq.preencher_formulario(campos_vazios)
         self.txt_exp_desc.delete("1.0", "end")
 
-        # Limpa gráfico e status
+        # 4. Limpa gráfico e status
         self.dashboard_gui.limpar()
         self.lbl_estado.configure(text="ESTADO: INATIVO", text_color="lightblue")
         self.lbl_delta_t.configure(text="ΔT Teórico: -- °C", text_color="yellow")
         self.lbl_temp_real.configure(text="Temp. Real: -- °C")
         self.lbl_temp_sim.configure(text="Gêmeo Digital: -- °C")
 
-        # Restaura o botão de Iniciar ao estado original (VERDE)
+        # 5. Restaura o botão de Iniciar ao estado original (VERDE)
         self.painel_esq.btn_iniciar.configure(
             text="Iniciar",
             fg_color="green",
