@@ -22,6 +22,9 @@ class ExperimentoRepository:
         """
         Salva o experimento, seus parâmetros e a associação
         com a substância em uma única transação.
+
+        Retorna os IDs gerados pelo banco:
+        (experimento_id, parametro_id, exp_subst_id).
         """
         with conectar_bd() as conexao:
             cursor = conexao.cursor()
@@ -35,7 +38,6 @@ class ExperimentoRepository:
                 """,
                 (nome, tipo_reacao, turma_id, professor_id, descricao)
             )
-
             experimento_id = cursor.lastrowid
 
             # 2. Salvar os parâmetros da simulação
@@ -47,6 +49,7 @@ class ExperimentoRepository:
                 """,
                 (experimento_id, temp_inicial, massa_inicial_a, massa_total)
             )
+            parametro_id = cursor.lastrowid
 
             # 3. Salvar a associação com a substância
             cursor.execute(
@@ -58,9 +61,9 @@ class ExperimentoRepository:
                 """,
                 (experimento_id, substancia_id, papel, coeficiente)
             )
+            exp_subst_id = cursor.lastrowid
 
-            return experimento_id
-
+            return experimento_id, parametro_id, exp_subst_id
 
     @staticmethod
     def salvar_dado_telemetria(experimento_id, tempo, temp_real, temp_simulada):

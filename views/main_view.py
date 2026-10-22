@@ -363,14 +363,19 @@ class MainView(ctk.CTk):
                 if status_atual == "Reagindo":
                     self.lbl_estado.configure(text="ESTADO: REAGINDO", text_color="lightgreen")
 
+
                 elif status_atual == "Finalizado":
-
                     self.lbl_estado.configure(
-
                         text="ESTADO: FINALIZADO",
-
                         text_color="cyan"
+                    )
 
+                    self.painel_esq.btn_iniciar.configure(
+                        text="Novo Experimento",
+                        command=self._novo_experimento,
+                        fg_color="#1F6AA5",
+                        hover_color="#144870",
+                        state="normal"
                     )
 
                     if not self.dashboard_gui.pausado:
@@ -444,7 +449,7 @@ class MainView(ctk.CTk):
 
     def _novo_experimento(self):
         """Reseta a interface e o controller para permitir criar um novo ensaio do zero."""
-        self.controller.experimento_id_db = None
+        self.controller.novo_experimento()
 
         # 1. DESTRAVA OS PARÂMETROS E ATUALIZA O ESTADO DOS BOTÕES
         self.painel_esq.liberar_parametros_fisicos()
@@ -479,16 +484,22 @@ class MainView(ctk.CTk):
         self.lbl_temp_sim.configure(text="Gêmeo Digital: -- °C")
 
         # 5. Restaura o botão de Iniciar ao estado original (VERDE)
+        # 5. Restaura o botão de Iniciar ao estado original
         self.painel_esq.btn_iniciar.configure(
             text="Iniciar",
+            command=lambda: self._iniciar_ensaio(),
             fg_color="green",
             hover_color="#134f13",
             state="normal"
         )
+
         self.painel_esq.btn_pausar.configure(state="disabled")
         self.painel_esq.btn_parar.configure(state="disabled")
 
-        messagebox.showinfo("Novo Ensaio", "Ambiente limpo! Insira os dados para iniciar um novo experimento.")
+        messagebox.showinfo(
+            "Novo Ensaio",
+            "Ambiente limpo! Insira os dados para iniciar um novo experimento."
+        )
 
     def _abrir_janela_logs(self):
         """Abre uma janela pop-up estilizada com a tabela de logs de alerta."""

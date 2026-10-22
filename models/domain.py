@@ -26,19 +26,34 @@ class Substancia:
         self.entalpia_formacao = entalpia_formacao
 
 
+
 class ExperimentoSubstancia:
-    def __init__(self, id_exp_subst: int, substancia: Substancia, coeficiente_estequiometrico: int = 1):
+    def __init__(
+        self,
+        id_exp_subst: int | None,
+        substancia: Substancia,
+        coeficiente_estequiometrico: int = 1
+    ):
         self.id = id_exp_subst
         self.substancia = substancia
         self.coeficiente_estequiometrico = coeficiente_estequiometrico
 
 
+
+
 class ParametroSimulacao:
-    def __init__(self, id_param: int, temp_inicial: float, massa_inicial_a: float, massa_total: float):
+    def __init__(
+        self,
+        id_param: int | None,
+        temp_inicial: float,
+        massa_inicial_a: float,
+        massa_total: float
+    ):
         self.id = id_param
         self.temp_inicial = temp_inicial
         self.massa_inicial_a = massa_inicial_a
         self.massa_total = massa_total
+
 
 
 class GemeoDigital:

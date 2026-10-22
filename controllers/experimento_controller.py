@@ -56,13 +56,13 @@ class ExperimentoController:
         )
 
         self.experimento.experimento_substancia = ExperimentoSubstancia(
-            id_exp_subst=1,
+            id_exp_subst=None,
             coeficiente_estequiometrico=dados_form["coef_estequio"],
             substancia=subst
         )
 
         self.experimento.parametro_simulacao = ParametroSimulacao(
-            id_param=1,
+            id_param=None,
             temp_inicial=dados_form["temp_ini"],
             massa_inicial_a=dados_form["massa_reagente"],
             massa_total=dados_form["massa_total"]
@@ -76,7 +76,11 @@ class ExperimentoController:
         try:
             self.experimento.iniciar_ensaio()
 
-            self.experimento_id_db = ExperimentoRepository.salvar_experimento_completo(
+            (
+                self.experimento_id_db,
+                parametro_id_real,
+                exp_subst_id_real
+            ) = ExperimentoRepository.salvar_experimento_completo(
                 nome=self.experimento.nome,
                 tipo_reacao=self.experimento.tipo_reacao,
                 turma_id=turma_id_real,
@@ -87,11 +91,12 @@ class ExperimentoController:
                 massa_total=self.experimento.parametro_simulacao.massa_total,
                 substancia_id=subst_id_real,
                 papel="Reagente",
-                coeficiente=(
-                    self.experimento.experimento_substancia
-                    .coeficiente_estequiometrico
-                )
+                coeficiente=self.experimento.experimento_substancia.coeficiente_estequiometrico
             )
+
+            # Atualiza os objetos com os IDs reais gerados pelo banco
+            self.experimento.parametro_simulacao.id = parametro_id_real
+            self.experimento.experimento_substancia.id = exp_subst_id_real
 
         except Exception:
             self.experimento.conexao_serial.desconectar()
