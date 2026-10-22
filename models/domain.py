@@ -131,16 +131,25 @@ class Experimento:
         return self.delta_t_calculado
 
     def iniciar_ensaio(self) -> None:
-        # 1. Calcula a calorimetria primeiro (se der erro/divisão por zero, para aqui!)
+        # 1. Calcula a calorimetria antes de alterar o estado
         self.calcular_calorimetria()
 
-        # 2. Só altera o status e limpa se o cálculo acima funcionar
+        # 2. Estabelece a conexão antes de iniciar o experimento
+        sucesso = self.conexao_serial.conectar()
+
+        if sucesso is False:
+            raise ConnectionError(
+                "Não foi possível estabelecer a conexão serial."
+            )
+
+        # 3. Só inicia após o cálculo e a conexão serem bem-sucedidos
         self.status = "Reagindo"
         self.tempo_decorrido = 0
         self.dados_grafico.clear()
         self.gemeo_digital.tempo_atual = 0.0
-        self.gemeo_digital.temp_simulada_atual = self.parametro_simulacao.temp_inicial
-        self.conexao_serial.conectar()
+        self.gemeo_digital.temp_simulada_atual = (
+            self.parametro_simulacao.temp_inicial
+        )
 
     def pausar_ensaio(self) -> None:
         if self.status == "Reagindo":

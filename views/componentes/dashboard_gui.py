@@ -72,6 +72,7 @@ class DashboardGUI:
         self.eixo_y_sim.clear()
         self.linha_real.set_xdata([])
         self.linha_real.set_ydata([])
+        self.pausado = False
         self.linha_sim.set_xdata([])
         self.linha_sim.set_ydata([])
         self.canvas.draw()

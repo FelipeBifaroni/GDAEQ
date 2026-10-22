@@ -11,8 +11,8 @@ from models.log_repository import LogRepository
 class ExperimentoController:
     def __init__(self):
         self.experimento = Experimento()
-        self.experimento.conexao_serial = ConexaoSerial()
-        self.experimento_id_db = None  # Armazena o ID gerado no SQLite
+        self.experimento_id_db = None
+        self.executando = False
 
     def iniciar_ensaio(self, dados_form: dict) -> float:
         self.experimento.nome = dados_form["nome_exp"]
@@ -70,36 +70,34 @@ class ExperimentoController:
 
         # Configura a porta COM
         self.experimento.conexao_serial.porta_com = dados_form["porta_com"]
-        self.experimento.conexao_serial.conectar()
 
-        # Inicia o cálculo APÓS todas as validações passarem com sucesso
-        self.experimento.iniciar_ensaio()
+        # Inicia o experimento e estabelece a conexão serial
 
-        # 2. PERSISTÊNCIA COM OS IDS REAIS
-        self.experimento_id_db = ExperimentoRepository.salvar_experimento_inicial(
-            nome=self.experimento.nome,
-            tipo_reacao=self.experimento.tipo_reacao if hasattr(self.experimento, 'tipo_reacao') else "Exotérmica",
-            turma_id=turma_id_real,
-            professor_id=prof_id_real,
-            descricao=self.experimento.descricao
-        )
+        try:
+            self.experimento.iniciar_ensaio()
 
-        ExperimentoRepository.salvar_parametros(
-            experimento_id=self.experimento_id_db,
-            temp_inicial=self.experimento.parametro_simulacao.temp_inicial,
-            massa_inicial_a=self.experimento.parametro_simulacao.massa_inicial_a,
-            massa_total=self.experimento.parametro_simulacao.massa_total
-        )
-
-        if self.experimento.experimento_substancia and self.experimento.experimento_substancia.substancia:
-            subst_id = self.experimento.experimento_substancia.substancia.id
-            coef = self.experimento.experimento_substancia.coeficiente_estequiometrico
-            ExperimentoRepository.salvar_experimento_substancia(
-                experimento_id=self.experimento_id_db,
-                substancia_id=subst_id,
+            self.experimento_id_db = ExperimentoRepository.salvar_experimento_completo(
+                nome=self.experimento.nome,
+                tipo_reacao=self.experimento.tipo_reacao,
+                turma_id=turma_id_real,
+                professor_id=prof_id_real,
+                descricao=self.experimento.descricao,
+                temp_inicial=self.experimento.parametro_simulacao.temp_inicial,
+                massa_inicial_a=self.experimento.parametro_simulacao.massa_inicial_a,
+                massa_total=self.experimento.parametro_simulacao.massa_total,
+                substancia_id=subst_id_real,
                 papel="Reagente",
-                coeficiente=coef
+                coeficiente=(
+                    self.experimento.experimento_substancia
+                    .coeficiente_estequiometrico
+                )
             )
+
+        except Exception:
+            self.experimento.conexao_serial.desconectar()
+            self.experimento.status = "Inativo"
+            self.experimento_id_db = None
+            raise
 
         return self.experimento.delta_t_calculado
 
@@ -244,6 +242,10 @@ class ExperimentoController:
             })
         return historico
 
+    def listar_logs_alerta(self) -> list:
+        """Retorna os registros de alerta para a interface."""
+        return LogRepository.listar_todos()
+
     def obter_dados_experimento_ativo(self) -> dict:
         """
         Retorna um dicionário limpo com os dados do experimento atual,
@@ -287,7 +289,7 @@ class ExperimentoController:
         # Reconstrói a substância se existir registo associado
         if exp_info[5]:
             subst = Substancia(
-                id_subst=1,
+                id_subst=exp_info[12],
                 nome=exp_info[5],
                 formula=exp_info[6],
                 estado_fisico="Líquido",
@@ -295,20 +297,30 @@ class ExperimentoController:
                 entalpia_formacao=exp_info[8]
             )
             self.experimento.experimento_substancia = ExperimentoSubstancia(
-                id_exp_subst=1,
+                id_exp_subst=exp_info[13],
                 substancia=subst,
-                coeficiente_estequiometrico=exp_info[9] if exp_info[9] is not None else 1
+                coeficiente_estequiometrico=(
+                    exp_info[9] if exp_info[9] is not None else 1
+                )
             )
 
         if param_info:
             self.experimento.parametro_simulacao = ParametroSimulacao(
-                id_param=1, temp_inicial=param_info[0], massa_inicial_a=param_info[1], massa_total=param_info[2]
+                id_param=param_info[0],
+                temp_inicial=param_info[1],
+                massa_inicial_a=param_info[2],
+                massa_total=param_info[3]
             )
 
         # Reconstrói os pontos do gráfico
         self.experimento.dados_grafico = []
         for p in pontos_db:
-            dado = DadoGrafico(id_dado=0, tempo=p[0], temp_real=p[1], temp_simulada=p[2])
+            dado = DadoGrafico(
+                id_dado=p[0],
+                tempo=p[1],
+                temp_real=p[2],
+                temp_simulada=p[3]
+            )
             self.experimento.dados_grafico.append(dado)
 
         self.experimento.status = "Finalizado"
@@ -405,3 +417,12 @@ class ExperimentoController:
             # Fluxo normal de funcionamento
             pass
 
+    def novo_experimento(self) -> None:
+        """Reinicializa completamente o experimento atual."""
+
+        if self.experimento.conexao_serial.conexao_ativa:
+            self.experimento.conexao_serial.desconectar()
+
+        self.experimento = Experimento()
+        self.experimento_id_db = None
+        self.executando = False

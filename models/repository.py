@@ -6,33 +6,61 @@ from models.database import conectar_bd
 class ExperimentoRepository:
 
     @staticmethod
-    def salvar_experimento_inicial(nome, tipo_reacao, turma_id, professor_id, descricao=None):
+    def salvar_experimento_completo(
+            nome,
+            tipo_reacao,
+            turma_id,
+            professor_id,
+            descricao,
+            temp_inicial,
+            massa_inicial_a,
+            massa_total,
+            substancia_id,
+            papel="Reagente",
+            coeficiente=1
+    ):
         """
-        Insere o registo principal do experimento e retorna o ID gerado.
+        Salva o experimento, seus parâmetros e a associação
+        com a substância em uma única transação.
         """
-        sql = """
-              INSERT INTO Experimento (nome, tipo_reacao, turma_id, professor_id, descricao)
-              VALUES (?, ?, ?, ?, ?); \
-              """
         with conectar_bd() as conexao:
             cursor = conexao.cursor()
-            cursor.execute(sql, (nome, tipo_reacao, turma_id, professor_id, descricao))
-            conexao.commit()
-            return cursor.lastrowid
 
-    @staticmethod
-    def salvar_parametros(experimento_id, temp_inicial, massa_inicial_a, massa_total):
-        """
-        Grava as condições e parâmetros iniciais de simulação.
-        """
-        sql = """
-              INSERT INTO Parametro_Simulacao (experimento_id, temp_inicial, massa_inicial_a, massa_total)
-              VALUES (?, ?, ?, ?); \
-              """
-        with conectar_bd() as conexao:
-            cursor = conexao.cursor()
-            cursor.execute(sql, (experimento_id, temp_inicial, massa_inicial_a, massa_total))
-            conexao.commit()
+            # 1. Salvar o experimento principal
+            cursor.execute(
+                """
+                INSERT INTO Experimento
+                    (nome, tipo_reacao, turma_id, professor_id, descricao)
+                VALUES (?, ?, ?, ?, ?);
+                """,
+                (nome, tipo_reacao, turma_id, professor_id, descricao)
+            )
+
+            experimento_id = cursor.lastrowid
+
+            # 2. Salvar os parâmetros da simulação
+            cursor.execute(
+                """
+                INSERT INTO Parametro_Simulacao
+                    (experimento_id, temp_inicial, massa_inicial_a, massa_total)
+                VALUES (?, ?, ?, ?);
+                """,
+                (experimento_id, temp_inicial, massa_inicial_a, massa_total)
+            )
+
+            # 3. Salvar a associação com a substância
+            cursor.execute(
+                """
+                INSERT INTO Experimento_Substancia
+                    (experimento_id, substancia_id, papel,
+                     coeficiente_estequiometrico)
+                VALUES (?, ?, ?, ?);
+                """,
+                (experimento_id, substancia_id, papel, coeficiente)
+            )
+
+            return experimento_id
+
 
     @staticmethod
     def salvar_dado_telemetria(experimento_id, tempo, temp_real, temp_simulada):
@@ -47,20 +75,6 @@ class ExperimentoRepository:
         with conectar_bd() as conexao:
             cursor = conexao.cursor()
             cursor.execute(sql, (experimento_id, tempo, temp_real, temp_simulada))
-            conexao.commit()
-
-    @staticmethod
-    def salvar_experimento_substancia(experimento_id, substancia_id, papel="Reagente", coeficiente=1):
-        """
-        Insere a associação entre o experimento e a substância escolhida.
-        """
-        sql = """
-              INSERT INTO Experimento_Substancia (experimento_id, substancia_id, papel, coeficiente_estequiometrico)
-              VALUES (?, ?, ?, ?); \
-              """
-        with conectar_bd() as conexao:
-            cursor = conexao.cursor()
-            cursor.execute(sql, (experimento_id, substancia_id, papel, coeficiente))
             conexao.commit()
 
     @staticmethod
@@ -141,48 +155,55 @@ class ExperimentoRepository:
 
     @staticmethod
     def carregar_experimento_completo(experimento_id):
-        """Carrega os dados gerais, parâmetros, substância e a telemetria completa de um experimento do banco."""
+        """Carrega os dados gerais, parâmetros, substância e telemetria de um experimento."""
+
         with conectar_bd() as conexao:
             cursor = conexao.cursor()
 
-            # 1. Dados do Cabeçalho, Professor, Turma e Substância associada
+            # 1. Dados do cabeçalho, professor, turma e substância
             cursor.execute("""
-                           SELECT e.nome,
-                                  e.tipo_reacao,
-                                  e.descricao,
-                                  p.nome,
-                                  t.nome,
-                                  s.nome,
-                                  s.formula,
-                                  s.massa_molar,
-                                  s.entalpia_formacao,
-                                  es.coeficiente_estequiometrico,
-                                  e.professor_id, 
-                                  e.turma_id      
-                           FROM Experimento e
-                                    LEFT JOIN Professor p ON e.professor_id = p.id
-                                    LEFT JOIN Turma t ON e.turma_id = t.id
-                                    LEFT JOIN Experimento_Substancia es ON e.id = es.experimento_id
-                                    LEFT JOIN Substancia s ON es.substancia_id = s.id
-                           WHERE e.id = ?;
-                           """, (experimento_id,))
+                SELECT e.nome,
+                       e.tipo_reacao,
+                       e.descricao,
+                       p.nome,
+                       t.nome,
+                       s.nome,
+                       s.formula,
+                       s.massa_molar,
+                       s.entalpia_formacao,
+                       es.coeficiente_estequiometrico,
+                       e.professor_id,
+                       e.turma_id,
+                       s.id,
+                       es.id
+                FROM Experimento e
+                LEFT JOIN Professor p ON e.professor_id = p.id
+                LEFT JOIN Turma t ON e.turma_id = t.id
+                LEFT JOIN Experimento_Substancia es
+                    ON e.id = es.experimento_id
+                LEFT JOIN Substancia s ON es.substancia_id = s.id
+                WHERE e.id = ?;
+            """, (experimento_id,))
+
             exp_info = cursor.fetchone()
 
-            # 2. Parâmetros de Simulação
+            # 2. Parâmetros de simulação
             cursor.execute("""
-                           SELECT temp_inicial, massa_inicial_a, massa_total
-                           FROM Parametro_Simulacao
-                           WHERE experimento_id = ?;
-                           """, (experimento_id,))
+                SELECT id, temp_inicial, massa_inicial_a, massa_total
+                FROM Parametro_Simulacao
+                WHERE experimento_id = ?;
+            """, (experimento_id,))
+
             param_info = cursor.fetchone()
 
-            # 3. Pontos de Telemetria (Gráfico)
+            # 3. Pontos de telemetria do gráfico
             cursor.execute("""
-                           SELECT tempo, temp_real, temp_simulada
-                           FROM Dado_Grafico
-                           WHERE experimento_id = ?
-                           ORDER BY tempo ASC;
-                           """, (experimento_id,))
+                SELECT id, tempo, temp_real, temp_simulada
+                FROM Dado_Grafico
+                WHERE experimento_id = ?
+                ORDER BY tempo ASC;
+            """, (experimento_id,))
+
             pontos = cursor.fetchall()
 
         return exp_info, param_info, pontos

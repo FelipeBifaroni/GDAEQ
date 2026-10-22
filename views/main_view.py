@@ -6,7 +6,7 @@ from views.componentes.dashboard_gui import DashboardGUI
 from controllers.sensor_controller import SensorController
 from controllers.experimento_controller import ExperimentoController
 from tkinter import ttk
-from models.log_repository import LogRepository
+
 
 class MainView(ctk.CTk):
     def __init__(self):
@@ -309,8 +309,6 @@ class MainView(ctk.CTk):
             dados_formulario = self.controller.obter_dados_experimento_ativo()
             self.painel_esq.preencher_formulario(dados_formulario)
 
-            self.painel_esq.bloquear_parametros_fisicos()
-
             # 4. Ajusta estados e o visual do botão para o modo Histórico Carregado
             self.painel_esq.bloquear_parametros_fisicos()
 
@@ -365,17 +363,20 @@ class MainView(ctk.CTk):
                 if status_atual == "Reagindo":
                     self.lbl_estado.configure(text="ESTADO: REAGINDO", text_color="lightgreen")
 
-
                 elif status_atual == "Finalizado":
 
-                    if self.dashboard_gui.pausado:
-                        return
+                    self.lbl_estado.configure(
 
-                    self.lbl_estado.configure(text="ESTADO: FINALIZADO", text_color="cyan")
+                        text="ESTADO: FINALIZADO",
 
-                    self.painel_esq.atualizar_estado_botao_pausa(False)
+                        text_color="cyan"
 
-                    self.painel_esq.atualizar_estado_botoes("Finalizado")
+                    )
+
+                    if not self.dashboard_gui.pausado:
+                        self.painel_esq.atualizar_estado_botao_pausa(False)
+
+                        self.painel_esq.atualizar_estado_botoes("Finalizado")
 
                 elif status_atual == "Emergência":
                     self.acionar_emergencia_visual()
@@ -390,30 +391,23 @@ class MainView(ctk.CTk):
 
     def acionar_emergencia_visual(self):
         """Atualiza a interface para o estado crítico de emergência e libera a criação de um novo ensaio."""
-        # 1. Muda o estado visual para emergência em vermelho
         self.lbl_estado.configure(text="ESTADO: EMERGÊNCIA", text_color="red")
 
-        # 2. Destrava os parâmetros físicos e libera todos os campos do formulário
         if hasattr(self, 'painel_esq'):
             self.painel_esq.liberar_parametros_fisicos()
+            self.painel_esq.atualizar_estado_botoes("Inativo")  # <--- Habilita o botão Salvar e Calibrar novamente
 
-            # 3. Transforma o botão de iniciar em "✨ Novo Experimento" azul e ativo
             self.painel_esq.btn_iniciar.configure(
                 text="✨ Novo Experimento",
-                fg_color="#1f538d",  # Azul estilo histórico
+                fg_color="#1f538d",
                 hover_color="#14375e",
                 state="normal"
             )
-
-            # 4. Desativa os botões operacionais do ensaio interrompido
             self.painel_esq.btn_pausar.configure(state="disabled")
             self.painel_esq.btn_parar.configure(state="disabled")
-
-            # 5. Garante que os botões globais fiquem acessíveis
             self.painel_esq.btn_historico.configure(state="normal")
             self.painel_esq.btn_excel.configure(state="normal")
 
-        # 6. Exibe o aviso crítico ao usuário
         messagebox.showwarning(
             "⚠️ Alerta de Emergência",
             "Temperatura fora da faixa segura (0°C a 100°C)! O experimento foi interrompido por segurança."
@@ -452,10 +446,11 @@ class MainView(ctk.CTk):
         """Reseta a interface e o controller para permitir criar um novo ensaio do zero."""
         self.controller.experimento_id_db = None
 
-        # 1. DESTTRAVA ABSOLUTAMENTE TUDO (Libera os campos físicos e técnicos)
+        # 1. DESTRAVA OS PARÂMETROS E ATUALIZA O ESTADO DOS BOTÕES
         self.painel_esq.liberar_parametros_fisicos()
+        self.painel_esq.atualizar_estado_botoes("Inativo")  # <--- ADICIONE ESTA LINHA!
 
-        # 2. Libera também os campos de identificação e substância que podem ter ficado bloqueados
+        # 2. Libera também os campos de identificação e substância
         campos_parametros = [
             self.painel_esq.txt_nome_exp, self.painel_esq.txt_professor, self.painel_esq.txt_turma,
             self.painel_esq.txt_subst_nome, self.painel_esq.txt_subst_formula, self.painel_esq.txt_porta_com
@@ -522,7 +517,7 @@ class MainView(ctk.CTk):
         tabela.column("Horário", width=130, anchor="center")
 
         # Puxa os dados do banco e insere na tabela
-        dados_logs = LogRepository.listar_todos()
+        dados_logs = self.controller.listar_logs_alerta()
         for log in dados_logs:
             tabela.insert("", "end", values=log)
 
