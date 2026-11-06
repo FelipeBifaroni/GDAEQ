@@ -1,12 +1,10 @@
 import pandas as pd
 from datetime import datetime
+import math
 from models.domain import ConexaoSerial, Experimento, Professor, Turma, Substancia, ExperimentoSubstancia, ParametroSimulacao, DadoGrafico
 from models.repository import ExperimentoRepository
 from models.domain import LogAlerta
 from models.log_repository import LogRepository
-
-
-
 
 class ExperimentoController:
     def __init__(self):
@@ -74,7 +72,14 @@ class ExperimentoController:
         # Inicia o experimento e estabelece a conexão serial
 
         try:
-            self.experimento.iniciar_ensaio()
+            temperatura_inicial = self.experimento.temperatura_inicial_sensor
+
+            if temperatura_inicial is None:
+                raise ValueError(
+                    "Realize a tara do sensor antes de iniciar o experimento."
+                )
+
+            self.experimento.iniciar_ensaio(temperatura_inicial)
 
             (
                 self.experimento_id_db,
@@ -98,16 +103,76 @@ class ExperimentoController:
             self.experimento.parametro_simulacao.id = parametro_id_real
             self.experimento.experimento_substancia.id = exp_subst_id_real
 
+
         except Exception:
             self.experimento.conexao_serial.desconectar()
             self.experimento.status = "Inativo"
             self.experimento_id_db = None
             raise
 
+        self.executando = True
+
         return self.experimento.delta_t_calculado
 
     def obter_proximo_ponto(self) -> dict | None:
-        ponto = self.experimento.proximo_ponto()
+        try:
+            ponto = self.experimento.proximo_ponto()
+
+
+        except (ConnectionError, TimeoutError, ValueError) as e:
+
+            print(f"Erro na leitura do sensor: {e}")
+
+            # Registra a falha associada ao experimento atual
+
+            if self.experimento_id_db:
+
+                try:
+
+                    from models.domain import LogAlerta
+
+                    from models.log_repository import LogRepository
+
+                    novo_log = LogAlerta(
+
+                        id_log=None,
+
+                        tipo_evento="FALHA_COMUNICACAO",
+
+                        descricao=f"Falha na leitura do sensor: {e}"
+
+                    )
+
+                    LogRepository.salvar(
+
+                        novo_log,
+
+                        self.experimento_id_db
+
+                    )
+
+
+                except Exception as log_err:
+
+                    print(f"Erro ao salvar alerta: {log_err}")
+
+            # Interrompe sem excluir os dados já registrados
+
+            self.interromper_emergencia(
+
+                motivo=f"Falha na leitura do sensor: {e}",
+
+                descartar_registro=False
+
+            )
+
+            return {
+                "tempo": self.experimento.tempo_decorrido,
+                "temp_real": None,
+                "temp_simulada": None,
+                "status": "Emergência",
+                "motivo": f"Falha na leitura do sensor: {e}"
+            }
 
         if ponto:
             # Salva cada ponto de telemetria gerado no SQLite em tempo real
@@ -119,13 +184,18 @@ class ExperimentoController:
                         temp_real=ponto["temp_real"],
                         temp_simulada=ponto["temp_simulada"]
                     )
+
                 except Exception as e:
                     erro_str = str(e)
-                    print(f"⚠️ Alerta da Trigger de Segurança do Banco: {erro_str}")
+                    print(
+                        f"⚠️ Alerta da Trigger de Segurança do Banco: {erro_str}"
+                    )
 
-                    if "fora da faixa operacional" in erro_str or "ABORT" in erro_str:
-
-                        # 1. GRAVA O ALERTA NA TABELA LogAlerta DO BANCO
+                    if (
+                            "fora da faixa operacional" in erro_str
+                            or "ABORT" in erro_str
+                    ):
+                        # 1. Grava o alerta na tabela LogAlerta
                         try:
                             from models.domain import LogAlerta
                             from models.log_repository import LogRepository
@@ -133,23 +203,34 @@ class ExperimentoController:
                             novo_log = LogAlerta(
                                 id_log=None,
                                 tipo_evento="EMERGENCIA_TEMPERATURA",
-                                descricao=f"Temperatura crítica ({ponto['temp_real']}°C) bloqueada pela Trigger."
+                                descricao=(
+                                    f"Temperatura crítica "
+                                    f"({ponto['temp_real']:.2f}°C) "
+                                    f"bloqueada pela Trigger."
+                                )
                             )
-                            LogRepository.salvar(novo_log)
+
+                            LogRepository.salvar(
+                                novo_log,
+                                self.experimento_id_db
+                            )
+
                         except Exception as log_err:
-                            print(f"❌ Erro ao salvar log no banco: {log_err}")
+                            print(
+                                f"❌ Erro ao salvar log no banco: {log_err}"
+                            )
 
-                        # 2. Executa a rotina de emergência interna
-                        self.interromper_emergencia()
-
-                        # 3. Desliga a flag para o loop gráfico parar
-                        self.executando = False
+                        self.interromper_emergencia(
+                            motivo="Temperatura crítica detectada pela proteção do banco de dados.",
+                            descartar_registro=True
+                        )
 
                         return {
                             "tempo": self.experimento.tempo_decorrido,
-                            "temp_real": 0.0,
-                            "temp_simulada": 0.0,
-                            "status": "Emergência"
+                            "temp_real": None,
+                            "temp_simulada": None,
+                            "status": "Emergência",
+                            "motivo": "Temperatura crítica detectada pela proteção do banco de dados."
                         }
 
             if ponto["status"] == "Finalizado":
@@ -161,77 +242,27 @@ class ExperimentoController:
         self.experimento.pausar_ensaio()
         return self.experimento.status
 
-    def interromper_emergencia(self) -> None:
-        # 1. Sinaliza para o sistema que a execução parou
-        self.executando = False  # Ajuste para a flag que controla o seu loop de telemetria/execução
+    def interromper_emergencia(
+            self,
+            motivo: str = "Parada de emergência acionada pelo operador.",
+            descartar_registro: bool = True
+    ) -> None:
 
-        # 2. Interrompe a lógica interna do experimento
-        self.experimento.interromper_emergencia()
+        self.executando = False
 
-        # 3. Desconecta o hardware físico / serial
-        if self.experimento.conexao_serial:
-            self.experimento.conexao_serial.desconectar()
+        self.experimento.interromper_emergencia(motivo)
 
-        # 4. Remove ou trata o registo corrompido/emergencial no banco de dados
-        if self.experimento_id_db:
+        self.experimento.conexao_serial.desconectar()
+
+        if descartar_registro and self.experimento_id_db:
             try:
-                ExperimentoRepository.descartar_experimento_emergencia(self.experimento_id_db)
+                ExperimentoRepository.descartar_experimento_emergencia(
+                    self.experimento_id_db
+                )
+                self.experimento_id_db = None
+
             except Exception as e:
-                print(f"⚠️ Erro ao descartar experimento de emergência no banco: {e}")
-
-    def exportar_excel(self, caminho_arquivo: str) -> None:
-        dados_para_tabela = [
-            {
-                "Tempo (s)": d[0],
-                "Temperatura Real (°C)": d[1],
-                "Temperatura Gêmeo Digital (°C)": d[2]
-            }
-            for d in ExperimentoRepository.buscar_dados_para_exportacao(
-                self.experimento_id_db
-            )
-        ]
-
-        df_telemetria = pd.DataFrame(dados_para_tabela)
-
-        with pd.ExcelWriter(caminho_arquivo, engine="openpyxl") as writer:
-            info_geral = pd.DataFrame({
-                "Parâmetro": [
-                    "Nome do Experimento", "Descrição", "Professor", "Turma",
-                    "Data/Hora", "Substância", "Fórmula", "Estado Físico",
-                    "Massa Reagente (g)", "Volume Reator (mL)",
-                    "ΔT Teórico (°C)", "Porta COM"
-                ],
-                "Valor": [
-                    self.experimento.nome,
-                    self.experimento.descricao,
-                    self.experimento.professor.nome,
-                    self.experimento.turma.nome,
-                    self.experimento.data_realizacao.strftime(
-                        "%d/%m/%Y %H:%M:%S"
-                    ) if self.experimento.data_realizacao else datetime.now().strftime(
-                        "%d/%m/%Y %H:%M:%S"
-                    ),
-                    self.experimento.experimento_substancia.substancia.nome,
-                    self.experimento.experimento_substancia.substancia.formula,
-                    self.experimento.experimento_substancia.substancia.estado_fisico,
-                    self.experimento.parametro_simulacao.massa_inicial_a,
-                    self.experimento.parametro_simulacao.massa_total,
-                    f"{self.experimento.delta_t_calculado:.2f}",
-                    self.experimento.conexao_serial.porta_com
-                ]
-            })
-
-            info_geral.to_excel(
-                writer,
-                sheet_name="Informações Gerais",
-                index=False
-            )
-
-            df_telemetria.to_excel(
-                writer,
-                sheet_name="Dados de Telemetria",
-                index=False
-            )
+                print(f"⚠️ Erro ao descartar experimento de emergência: {e}")
 
     def listar_historico_banco(self) -> list:
         """Busca o histórico utilizando estritamente o Repositório."""
@@ -398,29 +429,654 @@ class ExperimentoController:
     def verificar_e_processar_temperatura(self, temp_atual: float):
         """Verifica se a temperatura está na faixa segura (0°C a 100°C)."""
 
-        if temp_atual < 0.0 or temp_atual > 100.0:
-            # 1. Define o texto descritivo do problema
-            msg_erro = f"Temperatura crítica detectada: {temp_atual}°C (Fora da faixa 0-100°C)"
+        if not math.isfinite(temp_atual):
+            raise ValueError("Temperatura inválida.")
 
-            # 2. Cria o objeto usando a sua classe LogAlerta
+        if temp_atual < 0.0 or temp_atual > 100.0:
+            msg_erro = (
+                f"Temperatura crítica detectada: {temp_atual}°C "
+                "(Fora da faixa 0-100°C)"
+            )
+
             novo_log = LogAlerta(
                 id_log=None,
                 tipo_evento="EMERGENCIA_TEMPERATURA",
                 descricao=msg_erro
             )
 
-            # 3. Salva no banco de dados SQLite via repositório
             try:
-                LogRepository.salvar(novo_log)
+                LogRepository.salvar(
+                    novo_log,
+                    self.experimento_id_db
+                )
             except Exception as log_err:
-                print(f"❌ Erro ao salvar log no banco: {log_err}")
+                print(f"Erro ao salvar log no banco: {log_err}")
 
-            # 4. Aciona a rotina de interrupção de emergência estruturada no Controller
             self.interromper_emergencia()
 
+    def exportar_excel(self, caminho: str) -> None:
+        """Exporta um relatório técnico completo do experimento para Excel."""
+
+        from openpyxl.styles import (
+            Font,
+            PatternFill,
+            Alignment,
+            Border,
+            Side
+        )
+        from openpyxl.chart import ScatterChart, Reference, Series
+
+        # ---------------------------------------------------------
+        # 1. RECUPERAÇÃO DOS DADOS
+        # ---------------------------------------------------------
+
+        if not self.experimento_id_db:
+            raise ValueError("Nenhum experimento carregado para exportação.")
+
+        exp_info, param_info, pontos_db = (
+            ExperimentoRepository.carregar_experimento_completo(
+                self.experimento_id_db
+            )
+        )
+
+        if not exp_info:
+            raise ValueError("Experimento não encontrado no banco.")
+
+        pontos_db = pontos_db or []
+
+        # Dados gerais
+        informacoes = [
+            ("ID do experimento", self.experimento_id_db),
+            ("Nome do experimento", exp_info[0]),
+            ("Tipo de reação", exp_info[1]),
+            ("Data de realização", exp_info[14] or "Não informada"),
+            ("Professor", exp_info[3] or "Não informado"),
+            ("Turma", exp_info[4] or "Não informada"),
+            ("Substância", exp_info[5] or "Não informada"),
+            ("Fórmula química", exp_info[6] or "Não informada"),
+            ("Massa molar", exp_info[7]),
+            ("Entalpia de formação", exp_info[8]),
+        ]
+
+        if param_info:
+            informacoes.extend([
+                ("Temperatura inicial (°C)", param_info[1]),
+                ("Massa inicial do reagente", param_info[2]),
+                ("Massa total", param_info[3]),
+            ])
+
+        descricao = exp_info[2] or "Nenhuma descrição informada."
+
+        # Dados de telemetria
+        df_telemetria = pd.DataFrame(
+            [(p[1], p[2], p[3]) for p in pontos_db],
+            columns=[
+                "Tempo (s)",
+                "Temperatura real (°C)",
+                "Temperatura simulada (°C)"
+            ]
+        )
+
+        # ---------------------------------------------------------
+        # 2. CÁLCULO DOS INDICADORES
+        # ---------------------------------------------------------
+
+        def numero_valido(valor):
+            return (
+                    isinstance(valor, (int, float))
+                    and not isinstance(valor, bool)
+                    and math.isfinite(valor)
+            )
+
+        temperaturas_reais = [
+            p[2] for p in pontos_db
+            if numero_valido(p[2])
+        ]
+
+        temperaturas_simuladas = [
+            p[3] for p in pontos_db
+            if numero_valido(p[3])
+        ]
+
+        pares_validos = [
+            (p[2], p[3]) for p in pontos_db
+            if numero_valido(p[2]) and numero_valido(p[3])
+        ]
+
+        if pares_validos:
+            erros = [
+                abs(real - simulada)
+                for real, simulada in pares_validos
+            ]
+
+            erro_medio = sum(erros) / len(erros)
+            erro_maximo = max(erros)
+
+            diferenca_final = (
+                    pares_validos[-1][0] - pares_validos[-1][1]
+            )
+
+            diferenca_final_absoluta = abs(diferenca_final)
         else:
-            # Fluxo normal de funcionamento
-            pass
+            erro_medio = None
+            erro_maximo = None
+            diferenca_final = None
+            diferenca_final_absoluta = None
+
+        ultima_leitura = pontos_db[-1] if pontos_db else None
+
+        temperatura_final_real = (
+            ultima_leitura[2]
+            if ultima_leitura and numero_valido(ultima_leitura[2])
+            else None
+        )
+
+        temperatura_final_simulada = (
+            ultima_leitura[3]
+            if ultima_leitura and numero_valido(ultima_leitura[3])
+            else None
+        )
+
+        indicadores_telemetria = [
+            ("Quantidade de registros", len(pontos_db)),
+            (
+                "Temperatura real máxima (°C)",
+                max(temperaturas_reais) if temperaturas_reais else None
+            ),
+            (
+                "Temperatura real mínima (°C)",
+                min(temperaturas_reais) if temperaturas_reais else None
+            ),
+            ("Temperatura final real (°C)", temperatura_final_real),
+            ("Temperatura final simulada (°C)", temperatura_final_simulada),
+        ]
+
+        indicadores_analise = [
+            ("Registros comparados", len(pares_validos)),
+            ("Temperatura final real (°C)", temperatura_final_real),
+            ("Temperatura final simulada (°C)", temperatura_final_simulada),
+            ("Diferença final (real - simulada) (°C)", diferenca_final),
+            ("Diferença final absoluta (°C)", diferenca_final_absoluta),
+            ("Erro médio absoluto (°C)", erro_medio),
+            ("Erro máximo absoluto (°C)", erro_maximo),
+        ]
+
+        # ---------------------------------------------------------
+        # 3. ESTILOS
+        # ---------------------------------------------------------
+
+        azul_escuro = "1F4E78"
+        azul_claro = "D9EAF7"
+        azul_muito_claro = "F2F6FA"
+        branco = "FFFFFF"
+        cinza = "F2F2F2"
+        texto = "333333"
+
+        borda_fina = Border(
+            bottom=Side(style="thin", color="D9E1F2")
+        )
+
+        borda_completa = Border(
+            left=Side(style="thin", color="D9E1F2"),
+            right=Side(style="thin", color="D9E1F2"),
+            top=Side(style="thin", color="D9E1F2"),
+            bottom=Side(style="thin", color="D9E1F2")
+        )
+
+        def formatar_titulo(ws, intervalo, titulo):
+            ws.merge_cells(intervalo)
+            celula = ws[intervalo.split(":")[0]]
+            celula.value = titulo
+            celula.font = Font(
+                name="Arial",
+                bold=True,
+                size=16,
+                color=branco
+            )
+            celula.fill = PatternFill("solid", fgColor=azul_escuro)
+            celula.alignment = Alignment(
+                horizontal="center",
+                vertical="center"
+            )
+            ws.row_dimensions[1].height = 34
+
+        def formatar_cabecalho(ws, linha, colunas):
+            for coluna in range(1, colunas + 1):
+                celula = ws.cell(row=linha, column=coluna)
+                celula.font = Font(
+                    name="Arial",
+                    bold=True,
+                    color=branco,
+                    size=10
+                )
+                celula.fill = PatternFill(
+                    "solid",
+                    fgColor=azul_escuro
+                )
+                celula.alignment = Alignment(
+                    horizontal="center",
+                    vertical="center",
+                    wrap_text=True
+                )
+
+        def formatar_tabela(ws, linha_inicial, quantidade, colunas):
+            for linha in range(linha_inicial, linha_inicial + quantidade):
+                ws.row_dimensions[linha].height = 22
+
+                for coluna in range(1, colunas + 1):
+                    celula = ws.cell(row=linha, column=coluna)
+
+                    celula.font = Font(
+                        name="Arial",
+                        size=10,
+                        color=texto
+                    )
+
+                    celula.fill = PatternFill(
+                        "solid",
+                        fgColor=branco if linha % 2 == 0 else cinza
+                    )
+
+                    celula.alignment = Alignment(
+                        horizontal="left" if coluna == 1 else "center",
+                        vertical="center",
+                        wrap_text=True
+                    )
+
+                    celula.border = borda_fina
+
+        # ---------------------------------------------------------
+        # 4. CRIAÇÃO DAS ABAS
+        # ---------------------------------------------------------
+
+        with pd.ExcelWriter(caminho, engine="openpyxl") as writer:
+
+            # Aba 1: Informações Gerais
+            pd.DataFrame(
+                informacoes,
+                columns=["INFORMAÇÃO", "VALOR"]
+            ).to_excel(
+                writer,
+                sheet_name="Informações Gerais",
+                index=False,
+                startrow=2
+            )
+
+            # Aba 2: Telemetria
+            df_telemetria.to_excel(
+                writer,
+                sheet_name="Telemetria",
+                index=False,
+                startrow=2
+            )
+
+            # Aba 3: Análise dos Resultados
+            pd.DataFrame(
+                indicadores_analise,
+                columns=["INDICADOR", "RESULTADO"]
+            ).to_excel(
+                writer,
+                sheet_name="Análise dos Resultados",
+                index=False,
+                startrow=2
+            )
+
+            ws_geral = writer.sheets["Informações Gerais"]
+            ws_telemetria = writer.sheets["Telemetria"]
+            ws_analise = writer.sheets["Análise dos Resultados"]
+
+            # =====================================================
+            # ABA 1 - INFORMAÇÕES GERAIS
+            # =====================================================
+
+            formatar_titulo(
+                ws_geral,
+                "A1:B1",
+                "RELATÓRIO DO EXPERIMENTO"
+            )
+
+            formatar_cabecalho(ws_geral, 3, 2)
+            formatar_tabela(ws_geral, 4, len(informacoes), 2)
+
+            # Destaque para os rótulos
+            for linha in range(4, 4 + len(informacoes)):
+                celula = ws_geral.cell(row=linha, column=1)
+                celula.font = Font(
+                    name="Arial",
+                    bold=True,
+                    size=10,
+                    color=azul_escuro
+                )
+                celula.fill = PatternFill(
+                    "solid",
+                    fgColor=azul_claro
+                )
+                celula.alignment = Alignment(
+                    horizontal="left",
+                    vertical="center",
+                    indent=1
+                )
+
+            ws_geral.column_dimensions["A"].width = 34
+            ws_geral.column_dimensions["B"].width = 55
+            ws_geral.freeze_panes = "A4"
+
+            # Campo separado para descrição
+            linha_descricao = 4 + len(informacoes) + 1
+
+            ws_geral.merge_cells(
+                start_row=linha_descricao,
+                start_column=1,
+                end_row=linha_descricao,
+                end_column=2
+            )
+
+            celula_titulo = ws_geral.cell(
+                row=linha_descricao,
+                column=1
+            )
+
+            celula_titulo.value = "DESCRIÇÃO DO EXPERIMENTO"
+            celula_titulo.font = Font(
+                name="Arial",
+                bold=True,
+                size=11,
+                color=branco
+            )
+            celula_titulo.fill = PatternFill(
+                "solid",
+                fgColor=azul_escuro
+            )
+            celula_titulo.alignment = Alignment(
+                horizontal="left",
+                vertical="center",
+                indent=1
+            )
+
+            ws_geral.row_dimensions[linha_descricao].height = 25
+
+            linha_campo = linha_descricao + 1
+            ultima_linha_campo = linha_campo + 4
+
+            ws_geral.merge_cells(
+                start_row=linha_campo,
+                start_column=1,
+                end_row=ultima_linha_campo,
+                end_column=2
+            )
+
+            celula_descricao = ws_geral.cell(
+                row=linha_campo,
+                column=1
+            )
+
+            celula_descricao.value = descricao
+            celula_descricao.font = Font(
+                name="Arial",
+                size=11,
+                color=texto
+            )
+            celula_descricao.fill = PatternFill(
+                "solid",
+                fgColor=azul_muito_claro
+            )
+            celula_descricao.alignment = Alignment(
+                horizontal="left",
+                vertical="top",
+                wrap_text=True,
+                indent=1
+            )
+            celula_descricao.border = borda_completa
+
+            for linha in range(linha_campo, ultima_linha_campo + 1):
+                ws_geral.row_dimensions[linha].height = 25
+
+            # =====================================================
+            # ABA 2 - TELEMETRIA
+            # =====================================================
+
+            formatar_titulo(
+                ws_telemetria,
+                "A1:C1",
+                "REGISTROS DE TELEMETRIA"
+            )
+
+            formatar_cabecalho(ws_telemetria, 3, 3)
+            formatar_tabela(
+                ws_telemetria,
+                4,
+                len(df_telemetria),
+                3
+            )
+
+            ws_telemetria.column_dimensions["A"].width = 18
+            ws_telemetria.column_dimensions["B"].width = 28
+            ws_telemetria.column_dimensions["C"].width = 32
+            ws_telemetria.freeze_panes = "A4"
+
+            # Indicadores resumidos da telemetria
+            ws_telemetria["E2"] = "RESUMO DA TELEMETRIA"
+            ws_telemetria["E2"].font = Font(
+                name="Arial",
+                bold=True,
+                color=branco,
+                size=11
+            )
+            ws_telemetria["E2"].fill = PatternFill(
+                "solid",
+                fgColor=azul_escuro
+            )
+
+            ws_telemetria.merge_cells("E2:F2")
+
+            for indice, (nome, valor) in enumerate(
+                    indicadores_telemetria,
+                    start=3
+            ):
+                ws_telemetria.cell(indice, 5, nome)
+                ws_telemetria.cell(
+                    indice,
+                    6,
+                    valor if valor is not None else "Sem dados"
+                )
+
+                ws_telemetria.cell(indice, 5).font = Font(
+                    name="Arial",
+                    bold=True,
+                    color=azul_escuro,
+                    size=10
+                )
+                ws_telemetria.cell(indice, 5).fill = PatternFill(
+                    "solid",
+                    fgColor=azul_claro
+                )
+
+                ws_telemetria.cell(indice, 6).font = Font(
+                    name="Arial",
+                    color=texto,
+                    size=10
+                )
+                ws_telemetria.cell(indice, 6).fill = PatternFill(
+                    "solid",
+                    fgColor=branco if indice % 2 else cinza
+                )
+
+                for coluna in (5, 6):
+                    ws_telemetria.cell(indice, coluna).alignment = Alignment(
+                        horizontal="left",
+                        vertical="center",
+                        wrap_text=True
+                    )
+                    ws_telemetria.cell(indice, coluna).border = borda_fina
+
+            ws_telemetria.column_dimensions["E"].width = 34
+            ws_telemetria.column_dimensions["F"].width = 20
+
+            # Gráfico de temperatura
+            if not df_telemetria.empty:
+                grafico = ScatterChart()
+                grafico.title = "Variação de Temperatura"
+                grafico.style = 13
+                grafico.x_axis.title = "Tempo (s)"
+                grafico.y_axis.title = "Temperatura (°C)"
+                grafico.height = 12
+                grafico.width = 22
+                grafico.scatterStyle = "lineMarker"
+                grafico.legend = None
+
+                tempos = Reference(
+                    ws_telemetria,
+                    min_col=1,
+                    min_row=4,
+                    max_row=3 + len(df_telemetria)
+                )
+
+                # Série real
+                valores_reais = Reference(
+                    ws_telemetria,
+                    min_col=2,
+                    min_row=4,
+                    max_row=3 + len(df_telemetria)
+                )
+
+                serie_real = Series(
+                    valores_reais,
+                    tempos,
+                    title="Temperatura real"
+                )
+
+                serie_real.graphicalProperties.line.solidFill = "0070C0"
+                serie_real.graphicalProperties.line.width = 28575
+                serie_real.marker.symbol = "circle"
+                serie_real.marker.size = 5
+                serie_real.marker.graphicalProperties.solidFill = "0070C0"
+                serie_real.marker.graphicalProperties.line.solidFill = "0070C0"
+
+                # Série simulada
+                valores_simulados = Reference(
+                    ws_telemetria,
+                    min_col=3,
+                    min_row=4,
+                    max_row=3 + len(df_telemetria)
+                )
+
+                serie_simulada = Series(
+                    valores_simulados,
+                    tempos,
+                    title="Temperatura simulada"
+                )
+
+                serie_simulada.graphicalProperties.line.solidFill = "ED7D31"
+                serie_simulada.graphicalProperties.line.width = 28575
+                serie_simulada.marker.symbol = "circle"
+                serie_simulada.marker.size = 5
+                serie_simulada.marker.graphicalProperties.solidFill = "ED7D31"
+                serie_simulada.marker.graphicalProperties.line.solidFill = "ED7D31"
+
+                grafico.series.append(serie_real)
+                grafico.series.append(serie_simulada)
+
+                # Legenda externa personalizada
+                ws_telemetria["E10"] = "● Temperatura real"
+                ws_telemetria["E10"].font = Font(
+                    name="Arial",
+                    bold=True,
+                    color="0070C0",
+                    size=11
+                )
+
+                ws_telemetria["H10"] = "● Temperatura simulada"
+                ws_telemetria["H10"].font = Font(
+                    name="Arial",
+                    bold=True,
+                    color="ED7D31",
+                    size=11
+                )
+
+                ws_telemetria.add_chart(grafico, "E12")
+
+            # =====================================================
+            # ABA 3 - ANÁLISE DOS RESULTADOS
+            # =====================================================
+
+            formatar_titulo(
+                ws_analise,
+                "A1:B1",
+                "ANÁLISE DOS RESULTADOS"
+            )
+
+            formatar_cabecalho(ws_analise, 3, 2)
+            formatar_tabela(
+                ws_analise,
+                4,
+                len(indicadores_analise),
+                2
+            )
+
+            # Destaque para os indicadores
+            for linha in range(4, 4 + len(indicadores_analise)):
+                celula = ws_analise.cell(row=linha, column=1)
+                celula.font = Font(
+                    name="Arial",
+                    bold=True,
+                    size=10,
+                    color=azul_escuro
+                )
+                celula.fill = PatternFill(
+                    "solid",
+                    fgColor=azul_claro
+                )
+                celula.alignment = Alignment(
+                    horizontal="left",
+                    vertical="center",
+                    indent=1,
+                    wrap_text=True
+                )
+
+            ws_analise.column_dimensions["A"].width = 45
+            ws_analise.column_dimensions["B"].width = 30
+            ws_analise.freeze_panes = "A4"
+
+            # Nota explicativa
+            linha_nota = 4 + len(indicadores_analise) + 2
+
+            ws_analise.merge_cells(
+                start_row=linha_nota,
+                start_column=1,
+                end_row=linha_nota + 2,
+                end_column=2
+            )
+
+            nota = ws_analise.cell(linha_nota, 1)
+
+            nota.value = (
+                "NOTA: O erro médio absoluto representa a média das "
+                "diferenças absolutas entre as temperaturas reais e "
+                "simuladas em cada registro correspondente. O erro "
+                "máximo absoluto representa a maior dessas diferenças. "
+                "Valores menores indicam maior proximidade entre as curvas."
+            )
+
+            nota.font = Font(
+                name="Arial",
+                size=10,
+                italic=True,
+                color=texto
+            )
+            nota.fill = PatternFill(
+                "solid",
+                fgColor=azul_muito_claro
+            )
+            nota.alignment = Alignment(
+                horizontal="left",
+                vertical="center",
+                wrap_text=True,
+                indent=1
+            )
+            nota.border = borda_completa
+
+            for linha in range(linha_nota, linha_nota + 3):
+                ws_analise.row_dimensions[linha].height = 25
 
     def novo_experimento(self) -> None:
         """Reinicializa completamente o experimento atual."""

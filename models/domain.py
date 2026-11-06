@@ -1,6 +1,8 @@
-import random
+import math
+import serial
 import time
 from datetime import datetime
+
 
 
 class Professor:
@@ -68,6 +70,8 @@ class GemeoDigital:
         return self.temp_simulada_atual
 
 
+
+
 class ConexaoSerial:
     def __init__(self, porta_com: str = "COM3", baud_rate: int = 9600):
         self.porta_com = porta_com
@@ -75,20 +79,90 @@ class ConexaoSerial:
         self.conexao_ativa: bool = False
         self.offset_temperatura: float = 0.0
         self.ganho_temperatura: float = 1.0
+        self.serial_conn = None
 
     def conectar(self) -> bool:
-        self.conexao_ativa = True
-        return self.conexao_ativa
+        # Evita abrir novamente uma conexão já existente.
+        if (
+            self.serial_conn is not None
+            and self.serial_conn.is_open
+        ):
+            self.conexao_ativa = True
+            return True
+
+        try:
+            self.serial_conn = serial.Serial(
+                port=self.porta_com,
+                baudrate=self.baud_rate,
+                timeout=3
+            )
+
+            # O Arduino reinicia ao abrir a porta serial.
+            time.sleep(2)
+            self.serial_conn.reset_input_buffer()
+
+            self.conexao_ativa = True
+            return True
+
+        except serial.SerialException as erro:
+            print(f"Erro ao conectar ao Arduino: {erro}")
+            self.serial_conn = None
+            self.conexao_ativa = False
+            return False
 
     def desconectar(self) -> None:
+        if self.serial_conn is not None:
+            if self.serial_conn.is_open:
+                self.serial_conn.close()
+
+        self.serial_conn = None
         self.conexao_ativa = False
 
     def ler_dados_temp(self, temp_base: float = 25.0) -> float:
-        leitura_bruta = temp_base + random.uniform(-0.2, 0.2)
-        return (leitura_bruta * self.ganho_temperatura) + self.offset_temperatura
+        if (
+            not self.conexao_ativa
+            or self.serial_conn is None
+            or not self.serial_conn.is_open
+        ):
+            raise ConnectionError("Arduino não está conectado.")
+
+        try:
+            linha = self.serial_conn.readline().decode(
+                "utf-8", errors="ignore"
+            ).strip()
+
+        except serial.SerialException as erro:
+            self.conexao_ativa = False
+            raise ConnectionError(
+                f"Erro na comunicação com o Arduino: {erro}"
+            ) from erro
+
+        if not linha:
+            raise TimeoutError("O Arduino não enviou uma temperatura.")
+
+        try:
+            leitura_bruta = float(linha)
+        except ValueError as erro:
+            raise ValueError(
+                f"Leitura inválida recebida do Arduino: {linha}"
+            ) from erro
+
+        if leitura_bruta == -127.0:
+            raise ValueError(
+                "Sensor DS18B20 desconectado ou não encontrado."
+            )
+
+        if not math.isfinite(leitura_bruta):
+            raise ValueError("Temperatura inválida recebida do Arduino.")
+
+        return (
+            leitura_bruta * self.ganho_temperatura
+        ) + self.offset_temperatura
 
     def executar_tara(self) -> None:
         self.offset_temperatura = 0.0
+
+
 
 
 class DadoGrafico:
@@ -104,7 +178,7 @@ class LogAlerta:
         self.id = id_log
         self.tipo_evento = tipo_evento
         self.descricao = descricao
-        self.timestamp = datetime.now().strftime("%H:%M:%S")
+        self.timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
 
 class Experimento:
@@ -121,6 +195,7 @@ class Experimento:
         self.turma = None
         self.parametro_simulacao = None
         self.experimento_substancia = None
+        self.temperatura_inicial_sensor = None
         self.gemeo_digital = GemeoDigital()
         self.conexao_serial = ConexaoSerial()
         self.dados_grafico = []
@@ -128,6 +203,7 @@ class Experimento:
 
         self.tempo_decorrido = 0
         self.delta_t_calculado = 0.0
+
 
     def calcular_calorimetria(self) -> float:
         massa_g = self.parametro_simulacao.massa_inicial_a
@@ -145,26 +221,27 @@ class Experimento:
         self.delta_t_calculado = -delta_t if entalpia_kj_mol > 0 else delta_t
         return self.delta_t_calculado
 
-    def iniciar_ensaio(self) -> None:
-        # 1. Calcula a calorimetria antes de alterar o estado
+    def iniciar_ensaio(self, temperatura_inicial_sensor: float) -> None:
+        # 1. Calcula a calorimetria
         self.calcular_calorimetria()
 
-        # 2. Estabelece a conexão antes de iniciar o experimento
-        sucesso = self.conexao_serial.conectar()
+        # 2. Verifica a conexão serial
+        if not self.conexao_serial.conexao_ativa:
+            sucesso = self.conexao_serial.conectar()
 
-        if sucesso is False:
-            raise ConnectionError(
-                "Não foi possível estabelecer a conexão serial."
-            )
+            if sucesso is False:
+                raise ConnectionError(
+                    "Não foi possível estabelecer a conexão serial."
+                )
 
-        # 3. Só inicia após o cálculo e a conexão serem bem-sucedidos
+        # 3. Inicializa o experimento
         self.status = "Reagindo"
         self.tempo_decorrido = 0
         self.dados_grafico.clear()
+
+        # 4. Inicializa o Gêmeo Digital com a temperatura do sensor
         self.gemeo_digital.tempo_atual = 0.0
-        self.gemeo_digital.temp_simulada_atual = (
-            self.parametro_simulacao.temp_inicial
-        )
+        self.gemeo_digital.temp_simulada_atual = temperatura_inicial_sensor
 
     def pausar_ensaio(self) -> None:
         if self.status == "Reagindo":
@@ -175,9 +252,15 @@ class Experimento:
     def finalizar_ensaio(self) -> None:
         self.status = "Finalizado"
 
-    def interromper_emergencia(self) -> None:
+    def interromper_emergencia(self, motivo: str = "Parada de emergência acionada pelo operador.") -> None:
         self.status = "Emergência"
-        alerta = LogAlerta(len(self.logs_alerta) + 1, "EMERGÊNCIA", "Parada de emergência acionada pelo operador.")
+
+        alerta = LogAlerta(
+            len(self.logs_alerta) + 1,
+            "EMERGÊNCIA",
+            motivo
+        )
+
         self.logs_alerta.append(alerta)
 
     def proximo_ponto(self) -> dict | None:
@@ -185,13 +268,22 @@ class Experimento:
         if self.status not in ["Reagindo", "Pausado"]:
             return None
 
+        temp_fisica = self.conexao_serial.ler_dados_temp()
         self.tempo_decorrido += 1
         delta_t_passo = self.delta_t_calculado if self.tempo_decorrido <= 20 else 0.0
         base_temp = self.parametro_simulacao.temp_inicial + (
                 (self.delta_t_calculado / 20.0) * min(self.tempo_decorrido, 20))
 
-        temp_fisica = self.conexao_serial.ler_dados_temp(base_temp)
-        temp_modelo = self.gemeo_digital.calcular_proximo_passo(dt=1.0, delta_t_teorico=delta_t_passo)
+
+
+        # Registra primeiro a temperatura atual do Gêmeo Digital
+        temp_modelo = self.gemeo_digital.temp_simulada_atual
+
+        # Calcula o próximo estado para a próxima leitura
+        self.gemeo_digital.calcular_proximo_passo(
+            dt=1.0,
+            delta_t_teorico=delta_t_passo
+        )
 
         dado = DadoGrafico(len(self.dados_grafico) + 1, float(self.tempo_decorrido), temp_fisica, temp_modelo)
         self.dados_grafico.append(dado)

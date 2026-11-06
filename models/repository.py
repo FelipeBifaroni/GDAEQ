@@ -177,8 +177,9 @@ class ExperimentoRepository:
                        es.coeficiente_estequiometrico,
                        e.professor_id,
                        e.turma_id,
-                       s.id,
-                       es.id
+                       s.id, 
+                       es.id,
+                       e.data_realizacao
                 FROM Experimento e
                 LEFT JOIN Professor p ON e.professor_id = p.id
                 LEFT JOIN Turma t ON e.turma_id = t.id

@@ -16,8 +16,8 @@ class MainView(ctk.CTk):
         self.geometry("1380x800")
         self.minsize(1100, 650)
 
-        self.sensor_controller = SensorController()
         self.controller = ExperimentoController()
+        self.sensor_controller = SensorController(self.controller)
 
         self.substancias_predefinidas = {
             "Nitrato de Amônio (NH4NO3 - Endotérmica)": {"nome": "Nitrato de Amônio", "formula": "NH4NO3", "estado": "Sólido", "massa_molar": 80.04, "entalpia": 25.7},
@@ -40,7 +40,7 @@ class MainView(ctk.CTk):
         self._criar_painel_direito()
         self._vincular_eventos()
 
-        self.after(1000, self._loop_telemetria)
+        self.after_telemetria_id = None
 
     def _criar_painel_direito(self):
         self.frame_direito = ctk.CTkFrame(self, corner_radius=10)
@@ -117,13 +117,18 @@ class MainView(ctk.CTk):
 
             # Inicia o ensaio apenas se todas as validações passarem
             delta_t = self.controller.iniciar_ensaio(dados)
+
+            self.dashboard_gui.limpar()
+
             self.lbl_delta_t.configure(text=f"ΔT Teórico: {delta_t:.2f} °C")
             self.lbl_estado.configure(text="ESTADO: REAGINDO", text_color="lightgreen")
+
             self.painel_esq.atualizar_estado_botoes("Reagindo")
             self.painel_esq.btn_iniciar.configure(state="disabled")
             self.painel_esq.btn_pausar.configure(state="normal")
             self.painel_esq.btn_parar.configure(state="normal")
-            self.dashboard_gui.limpar()
+
+            self._loop_telemetria()
 
         except Exception as e:
             messagebox.showerror("Erro ao Iniciar", f"Verifique os campos inseridos:\n{str(e)}")
@@ -177,20 +182,29 @@ class MainView(ctk.CTk):
         self.painel_esq.btn_parar.configure(state="disabled")
 
     def _calibrar_sensores(self):
-        """Executa a tara/calibração e preenche automaticamente o campo de Temp. Inicial."""
-        porta = self.painel_esq.txt_porta_com.get()
+        """Executa a tara e captura a temperatura inicial do sensor."""
+        try:
+            porta = self.painel_esq.txt_porta_com.get().strip()
 
-        # 1. Executa a calibração e obtém a temperatura real lida pelo sensor
-        temp_lida = self.sensor_controller.calibrar_sensores(porta_com=porta)
+            if not porta:
+                raise ValueError("Informe a porta COM do Arduino.")
 
-        # 2. Insere o valor automaticamente no campo de Temperatura Inicial do painel
-        self.painel_esq.txt_temp_ini.delete(0, "end")
-        self.painel_esq.txt_temp_ini.insert(0, f"{temp_lida:.2f}")
+            temp_lida = self.sensor_controller.calibrar_sensores(porta_com=porta)
 
-        messagebox.showinfo(
-            "Calibração Concluída",
-            f"Tara realizada com sucesso!\nTemperatura inicial capturada: {temp_lida:.2f}°C"
-        )
+            self.painel_esq.txt_temp_ini.delete(0, "end")
+            self.painel_esq.txt_temp_ini.insert(0, f"{temp_lida:.2f}")
+
+            messagebox.showinfo(
+                "Calibração Concluída",
+                f"Leitura realizada com sucesso!\n"
+                f"Temperatura inicial capturada: {temp_lida:.2f}°C"
+            )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Erro na Calibração",
+                f"Não foi possível realizar a leitura do sensor:\n{str(e)}"
+            )
 
     def _exportar_excel(self):
         caminho = filedialog.asksaveasfilename(
@@ -336,12 +350,89 @@ class MainView(ctk.CTk):
             messagebox.showerror("Erro", "Não foi possível carregar os dados deste experimento.")
 
     def _confirmar_e_excluir(self, experimento_id, nome_ensaio, janela_historico):
-        """Exibe um aviso de confirmação antes de excluir permanentemente o experimento."""
-        resposta = messagebox.askyesno(
-            "Confirmar Exclusão",
-            f"Tem certeza que deseja excluir o experimento #{experimento_id} ('{nome_ensaio}')?\n\nEsta ação não pode ser desfeita!",
-            icon="warning"
+        """Exibe uma confirmação personalizada antes de excluir o experimento."""
+
+        janela = ctk.CTkToplevel(janela_historico)
+        janela.title("Confirmar Exclusão")
+        janela.geometry("460x240")
+        janela.resizable(False, False)
+        janela.configure(fg_color="#1e1e1e")
+
+        janela.transient(janela_historico)
+        janela.grab_set()
+        janela.lift()
+        janela.focus_force()
+
+        ctk.CTkLabel(
+            janela,
+            text="⚠  Confirmar exclusão",
+            font=ctk.CTkFont(size=22, weight="bold"),
+            text_color="#ff5555"
+        ).pack(pady=(22, 12))
+
+        ctk.CTkLabel(
+            janela,
+            text=(
+                f"Tem certeza que deseja excluir o experimento "
+                f"#{experimento_id} ('{nome_ensaio}')?\n\n"
+                "Esta ação não pode ser desfeita!"
+            ),
+            font=ctk.CTkFont(size=13),
+            text_color="#eeeeee",
+            wraplength=420,
+            justify="center"
+        ).pack(padx=20, pady=5)
+
+        frame_botoes = ctk.CTkFrame(
+            janela,
+            fg_color="transparent"
         )
+        frame_botoes.pack(fill="x", padx=25, pady=(20, 18))
+
+        resposta = {"confirmado": False}
+
+        def cancelar():
+            janela.destroy()
+
+        def confirmar():
+            resposta["confirmado"] = True
+            janela.destroy()
+
+        # Botão NÃO em destaque
+        ctk.CTkButton(
+            frame_botoes,
+            text="Não, voltar",
+            height=44,
+            fg_color="#2563eb",
+            hover_color="#1d4ed8",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            command=cancelar
+        ).pack(side="left", padx=(0, 10), expand=True, fill="x")
+
+        # Botão SIM em vermelho
+        ctk.CTkButton(
+            frame_botoes,
+            text="Sim, excluir",
+            height=40,
+            fg_color="#991b1b",
+            hover_color="#7f1d1d",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=confirmar
+        ).pack(side="left", expand=True, fill="x")
+
+        janela.update_idletasks()
+        x = janela_historico.winfo_rootx() + (
+                janela_historico.winfo_width() - janela.winfo_width()
+        ) // 2
+        y = janela_historico.winfo_rooty() + (
+                janela_historico.winfo_height() - janela.winfo_height()
+        ) // 2
+        janela.geometry(f"+{max(0, x)}+{max(0, y)}")
+
+        janela.wait_window()
+
+        if not resposta["confirmado"]:
+            return
 
         if resposta:
             sucesso = self.controller.excluir_experimento(experimento_id)
@@ -353,54 +444,79 @@ class MainView(ctk.CTk):
                 messagebox.showerror("Erro", "Não foi possível excluir o experimento do banco de dados.")
 
     def _loop_telemetria(self):
+        self.after_telemetria_id = None
         try:
             ponto = self.controller.obter_proximo_ponto()
+
             if ponto:
-                self.lbl_temp_real.configure(text=f"Temp. Real: {ponto['temp_real']:.2f} °C")
-                self.lbl_temp_sim.configure(text=f"Gêmeo Digital: {ponto['temp_simulada']:.2f} °C")
-
                 status_atual = ponto.get("status", "")
-                if status_atual == "Reagindo":
-                    self.lbl_estado.configure(text="ESTADO: REAGINDO", text_color="lightgreen")
 
+                if status_atual == "Emergência":
+                    motivo = ponto.get("motivo", "")
+                    self.acionar_emergencia_visual(motivo)
 
-                elif status_atual == "Finalizado":
-                    self.lbl_estado.configure(
-                        text="ESTADO: FINALIZADO",
-                        text_color="cyan"
+                else:
+                    self.lbl_temp_real.configure(
+                        text=f"Temp. Real: {ponto['temp_real']:.2f} °C"
                     )
 
-                    self.painel_esq.btn_iniciar.configure(
-                        text="Novo Experimento",
-                        command=self._novo_experimento,
-                        fg_color="#1F6AA5",
-                        hover_color="#144870",
-                        state="normal"
+                    self.lbl_temp_sim.configure(
+                        text=f"Gêmeo Digital: {ponto['temp_simulada']:.2f} °C"
                     )
 
-                    if not self.dashboard_gui.pausado:
-                        self.painel_esq.atualizar_estado_botao_pausa(False)
+                    if status_atual == "Reagindo":
+                        self.lbl_estado.configure(
+                            text="ESTADO: REAGINDO",
+                            text_color="lightgreen"
+                        )
 
-                        self.painel_esq.atualizar_estado_botoes("Finalizado")
+                    elif status_atual == "Finalizado":
+                        self.lbl_estado.configure(
+                            text="ESTADO: FINALIZADO",
+                            text_color="cyan"
+                        )
 
-                elif status_atual == "Emergência":
-                    self.acionar_emergencia_visual()
+                        self.painel_esq.btn_iniciar.configure(
+                            text="Novo Experimento",
+                            command=self._novo_experimento,
+                            fg_color="#1F6AA5",
+                            hover_color="#144870",
+                            state="normal"
+                        )
 
-                if ponto.get("dado_obj"):
-                    self.dashboard_gui.renderizar_ponto(ponto["dado_obj"])
+                        if not self.dashboard_gui.pausado:
+                            self.painel_esq.atualizar_estado_botao_pausa(False)
+                            self.painel_esq.atualizar_estado_botoes("Finalizado")
+
+                    if ponto.get("dado_obj"):
+                        self.dashboard_gui.renderizar_ponto(ponto["dado_obj"])
+
 
         except Exception as e:
+
             print(f"⚠️ Erro capturado no loop de telemetria: {e}")
 
-        self.after(1000, self._loop_telemetria)
+            self.parar_loop_telemetria()
 
-    def acionar_emergencia_visual(self):
-        """Atualiza a interface para o estado crítico de emergência e libera a criação de um novo ensaio."""
-        self.lbl_estado.configure(text="ESTADO: EMERGÊNCIA", text_color="red")
+            return
+
+        if self.controller.executando:
+            self.after_telemetria_id = self.after(
+                1000,
+                self._loop_telemetria
+            )
+
+    def acionar_emergencia_visual(self, motivo: str = ""):
+        """Atualiza a interface para o estado crítico de emergência."""
+
+        self.lbl_estado.configure(
+            text="ESTADO: EMERGÊNCIA",
+            text_color="#ff3333"
+        )
 
         if hasattr(self, 'painel_esq'):
             self.painel_esq.liberar_parametros_fisicos()
-            self.painel_esq.atualizar_estado_botoes("Inativo")  # <--- Habilita o botão Salvar e Calibrar novamente
+            self.painel_esq.atualizar_estado_botoes("Inativo")
 
             self.painel_esq.btn_iniciar.configure(
                 text="✨ Novo Experimento",
@@ -413,10 +529,103 @@ class MainView(ctk.CTk):
             self.painel_esq.btn_historico.configure(state="normal")
             self.painel_esq.btn_excel.configure(state="normal")
 
-        messagebox.showwarning(
-            "⚠️ Alerta de Emergência",
-            "Temperatura fora da faixa segura (0°C a 100°C)! O experimento foi interrompido por segurança."
+        # Janela personalizada de emergência
+        janela = ctk.CTkToplevel(self)
+        janela.title("Alerta de Emergência")
+        janela.geometry("500x320")
+        janela.resizable(False, False)
+        janela.configure(fg_color="#181818")
+
+        janela.transient(self)
+        janela.grab_set()
+        janela.lift()
+        janela.focus_force()
+
+        # Cabeçalho vermelho
+        cabecalho = ctk.CTkFrame(
+            janela,
+            fg_color="#b91c1c",
+            corner_radius=0,
+            height=85
         )
+        cabecalho.pack(fill="x")
+        cabecalho.pack_propagate(False)
+
+        ctk.CTkLabel(
+            cabecalho,
+            text="⚠  EMERGÊNCIA",
+            font=ctk.CTkFont(size=27, weight="bold"),
+            text_color="#ffffff"
+        ).pack(expand=True)
+
+        # Identifica o tipo de emergência
+        motivo_lower = motivo.lower()
+
+        if "arduino" in motivo_lower or "sensor" in motivo_lower or "comunicação" in motivo_lower:
+            titulo_alerta = "FALHA NA CONEXÃO COM ARDUINO"
+            mensagem_alerta = (
+                "O experimento foi interrompido por falha na leitura do sensor.\n\n"
+                "Verifique a conexão do Arduino, o cabo USB e o sensor de temperatura.\n"
+                "Reconecte o dispositivo antes de iniciar um novo ensaio."
+            )
+
+        elif "temperatura" in motivo_lower or "°c" in motivo_lower:
+            titulo_alerta = "TEMPERATURA FORA DA FAIXA SEGURA"
+            mensagem_alerta = (
+                "O experimento foi interrompido por segurança.\n\n"
+                "Faixa de temperatura permitida: 0 °C a 100 °C.\n"
+                "Verifique as condições antes de iniciar um novo ensaio."
+            )
+
+        else:
+            titulo_alerta = "EMERGÊNCIA NO EXPERIMENTO"
+            mensagem_alerta = (
+                "O experimento foi interrompido por segurança.\n\n"
+                f"Motivo: {motivo or 'Não informado.'}"
+            )
+
+        # Título do alerta
+        ctk.CTkLabel(
+            janela,
+            text=titulo_alerta,
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#ff4d4d",
+            wraplength=450
+        ).pack(padx=20, pady=(22, 10))
+
+        # Mensagem
+        ctk.CTkLabel(
+            janela,
+            text=mensagem_alerta,
+            font=ctk.CTkFont(size=13),
+            text_color="#eeeeee",
+            justify="center",
+            wraplength=440
+        ).pack(padx=25, pady=5)
+
+        # Botão de confirmação
+        ctk.CTkButton(
+            janela,
+            text="ENTENDI — FECHAR ALERTA",
+            height=42,
+            fg_color="#b91c1c",
+            hover_color="#7f1d1d",
+            text_color="#ffffff",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=janela.destroy
+        ).pack(fill="x", padx=30, pady=(22, 18))
+
+        # Centraliza a janela em relação à interface principal
+        janela.update_idletasks()
+
+        x = self.winfo_rootx() + (
+                self.winfo_width() - janela.winfo_width()
+        ) // 2
+        y = self.winfo_rooty() + (
+                self.winfo_height() - janela.winfo_height()
+        ) // 2
+
+        janela.geometry(f"+{max(0, x)}+{max(0, y)}")
 
     def _ao_clicar_atualizar(self):
         """Recolhe os dados editados da tela e atualiza o registo ativo no banco."""
@@ -502,38 +711,238 @@ class MainView(ctk.CTk):
         )
 
     def _abrir_janela_logs(self):
-        """Abre uma janela pop-up estilizada com a tabela de logs de alerta."""
+        """Abre uma janela estilizada com o histórico de alertas e emergências."""
+
         janela_logs = ctk.CTkToplevel(self)
         janela_logs.title("Histórico de Alertas e Emergências")
-        janela_logs.geometry("650x400")
-        janela_logs.grab_set()  # Mantém o foco na janela
+        janela_logs.geometry("950x520")
+        janela_logs.minsize(750, 400)
+        janela_logs.configure(fg_color="#1e1e1e")
+        janela_logs.grab_set()
 
-        # Título da janela
-        lbl_titulo = ctk.CTkLabel(janela_logs, text="📋 Registros de Alerta do Sistema",
-                                  font=ctk.CTkFont(size=16, weight="bold"))
-        lbl_titulo.pack(pady=10)
+        # Centraliza a janela em relação à janela principal
+        janela_logs.update_idletasks()
+        largura = 950
+        altura = 520
+        x = self.winfo_x() + (self.winfo_width() - largura) // 2
+        y = self.winfo_y() + (self.winfo_height() - altura) // 2
+        janela_logs.geometry(f"{largura}x{altura}+{x}+{y}")
 
-        # Configuração da Tabela (Treeview)
-        colunas = ("ID", "Tipo de Evento", "Descrição", "Horário")
-        tabela = ttk.Treeview(janela_logs, columns=colunas, show="headings", height=12)
+        # =========================
+        # CABEÇALHO
+        # =========================
+        frame_topo = ctk.CTkFrame(
+            janela_logs,
+            fg_color="#2b2b2b",
+            corner_radius=10
+        )
+        frame_topo.pack(fill="x", padx=15, pady=(15, 10))
 
+        lbl_icone = ctk.CTkLabel(
+            frame_topo,
+            text="⚠",
+            font=ctk.CTkFont(size=30, weight="bold"),
+            text_color="#ff4d4d"
+        )
+        lbl_icone.pack(side="left", padx=(15, 10), pady=12)
+
+        frame_titulos = ctk.CTkFrame(
+            frame_topo,
+            fg_color="transparent"
+        )
+        frame_titulos.pack(side="left", fill="y", pady=10)
+
+        ctk.CTkLabel(
+            frame_titulos,
+            text="Histórico de Alertas",
+            font=ctk.CTkFont(size=20, weight="bold"),
+            text_color="#ffffff"
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            frame_titulos,
+            text="Registro de ocorrências e emergências do sistema",
+            font=ctk.CTkFont(size=12),
+            text_color="#b0b0b0"
+        ).pack(anchor="w", pady=(2, 0))
+
+        # =========================
+        # ÁREA DA TABELA
+        # =========================
+        frame_tabela = ctk.CTkFrame(
+            janela_logs,
+            fg_color="#252525",
+            corner_radius=10
+        )
+        frame_tabela.pack(
+            fill="both",
+            expand=True,
+            padx=15,
+            pady=(0, 10)
+        )
+
+        colunas = ("ID", "Tipo de Evento", "Descrição", "Data e Hora")
+
+        tabela = ttk.Treeview(
+            frame_tabela,
+            columns=colunas,
+            show="headings",
+            height=12
+        )
+
+        # Estilo escuro da tabela
+        estilo = ttk.Style(janela_logs)
+        estilo.theme_use("clam")
+
+        estilo.configure(
+            "Alertas.Treeview",
+            background="#252525",
+            foreground="#f0f0f0",
+            fieldbackground="#252525",
+            rowheight=32,
+            font=("Segoe UI", 10),
+            borderwidth=0
+        )
+
+        estilo.configure(
+            "Alertas.Treeview.Heading",
+            background="#383838",
+            foreground="#ffffff",
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            padding=(8, 8)
+        )
+
+        estilo.map(
+            "Alertas.Treeview",
+            background=[("selected", "#1f538d")],
+            foreground=[("selected", "#ffffff")]
+        )
+
+        estilo.map(
+            "Alertas.Treeview.Heading",
+            background=[("active", "#4a4a4a")]
+        )
+
+        tabela.configure(style="Alertas.Treeview")
+
+        # Cabeçalhos
         tabela.heading("ID", text="ID")
         tabela.heading("Tipo de Evento", text="Tipo de Evento")
         tabela.heading("Descrição", text="Descrição do Ocorrido")
-        tabela.heading("Horário", text="Horário")
+        tabela.heading("Data e Hora", text="Data e Hora")
 
-        tabela.column("ID", width=40, anchor="center")
-        tabela.column("Tipo de Evento", width=140, anchor="center")
-        tabela.column("Descrição", width=300, anchor="w")
-        tabela.column("Horário", width=130, anchor="center")
+        # Largura e alinhamento das colunas
+        tabela.column("ID", width=55, minwidth=45, anchor="center", stretch=False)
+        tabela.column(
+            "Tipo de Evento", width=190, minwidth=140,
+            anchor="center", stretch=False
+        )
+        tabela.column(
+            "Descrição", width=420, minwidth=200,
+            anchor="w", stretch=True
+        )
+        tabela.column(
+            "Data e Hora", width=175, minwidth=155,
+            anchor="center", stretch=False
+        )
 
-        # Puxa os dados do banco e insere na tabela
+        # Barras de rolagem
+        scrollbar_y = ttk.Scrollbar(
+            frame_tabela,
+            orient="vertical",
+            command=tabela.yview
+        )
+        scrollbar_x = ttk.Scrollbar(
+            frame_tabela,
+            orient="horizontal",
+            command=tabela.xview
+        )
+
+        tabela.configure(
+            yscrollcommand=scrollbar_y.set,
+            xscrollcommand=scrollbar_x.set
+        )
+
+        tabela.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=(8, 0))
+        scrollbar_y.grid(row=0, column=1, sticky="ns", padx=(0, 8), pady=(8, 0))
+        scrollbar_x.grid(row=1, column=0, sticky="ew", padx=(8, 0), pady=(0, 8))
+
+        frame_tabela.grid_rowconfigure(0, weight=1)
+        frame_tabela.grid_columnconfigure(0, weight=1)
+
+        # =========================
+        # CORES POR GRAVIDADE
+        # =========================
+        tabela.tag_configure(
+            "emergencia",
+            background="#5c2020",
+            foreground="#ffffff"
+        )
+
+        tabela.tag_configure(
+            "aviso",
+            background="#59421d",
+            foreground="#ffffff"
+        )
+
+        tabela.tag_configure(
+            "normal",
+            background="#2d3e35",
+            foreground="#ffffff"
+        )
+
+        # Busca os registros existentes no banco
         dados_logs = self.controller.listar_logs_alerta()
+
         for log in dados_logs:
-            tabela.insert("", "end", values=log)
+            # Esperado: (id, tipo_evento, descricao, timestamp)
+            id_log, experimento_id, tipo_evento, descricao, timestamp = log
 
-        tabela.pack(pady=10, padx=10, fill="both", expand=True)
+            tipo = str(tipo_evento).upper()
 
-        # Botão para fechar
-        btn_fechar = ctk.CTkButton(janela_logs, text="Fechar", fg_color="gray40", command=janela_logs.destroy)
-        btn_fechar.pack(pady=10)
+            if "EMERGENCIA" in tipo or "EMERGÊNCIA" in tipo or "CRITIC" in tipo:
+                gravidade = "emergencia"
+            elif "AVISO" in tipo or "ALERTA" in tipo or "WARNING" in tipo:
+                gravidade = "aviso"
+            else:
+                gravidade = "normal"
+
+            tabela.insert(
+                "",
+                "end",
+                values=(id_log, tipo_evento, descricao, timestamp),
+                tags=(gravidade,)
+            )
+
+        # =========================
+        # RODAPÉ
+        # =========================
+        frame_rodape = ctk.CTkFrame(
+            janela_logs,
+            fg_color="transparent"
+        )
+        frame_rodape.pack(fill="x", padx=15, pady=(0, 12))
+
+        total_logs = len(dados_logs)
+
+        lbl_total = ctk.CTkLabel(
+            frame_rodape,
+            text=f"Total de registros: {total_logs}",
+            font=ctk.CTkFont(size=12),
+            text_color="#b0b0b0"
+        )
+        lbl_total.pack(side="left", padx=5)
+
+        btn_fechar = ctk.CTkButton(
+            frame_rodape,
+            text="Fechar",
+            width=120,
+            height=36,
+            fg_color="#444444",
+            hover_color="#5a5a5a",
+            text_color="#ffffff",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=janela_logs.destroy
+        )
+        btn_fechar.pack(side="right", padx=5)

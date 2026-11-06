@@ -18,4 +18,4 @@ projeto_completo.txt
 GDAEQ.db
 
 # Testes
-test_gdaeq_todos_cts.py
+test_emergencia_view.py

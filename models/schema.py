@@ -64,9 +64,13 @@ CREATE TABLE IF NOT EXISTS Dado_Grafico (
 
 CREATE TABLE IF NOT EXISTS LogAlerta (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    experimento_id INTEGER,
     tipo_evento TEXT NOT NULL,
     descricao TEXT NOT NULL,
-    timestamp TEXT NOT NULL
+    timestamp TEXT NOT NULL,
+    FOREIGN KEY (experimento_id)
+        REFERENCES Experimento(id)
+        ON DELETE CASCADE
 );
 
 -- Triggers de Segurança e Negócio
