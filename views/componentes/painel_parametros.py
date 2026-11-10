@@ -3,11 +3,13 @@ import re
 
 
 class PainelParametros(ctk.CTkFrame):
-    def __init__(self, master, substancias_predefinidas: dict, on_selecionar_substancia, cmd_historico=None,
+    def __init__(self, master, substancias: list, on_selecionar_substancia, cmd_historico=None,
                  cmd_excel=None, cmd_logs=None):
         super().__init__(master, corner_radius=10)
-        self.substancias_predefinidas = substancias_predefinidas
+        self.substancias = substancias
         self.on_selecionar_substancia = on_selecionar_substancia
+        self.modo_edicao_substancia = False
+        self.substancia_selecionada_id = None
 
         self.grid_rowconfigure(0, weight=0)  # Barra Superior
         self.grid_rowconfigure(1, weight=1)  # Conteúdo em Grid (expande para ocupar a tela)
@@ -66,11 +68,63 @@ class PainelParametros(ctk.CTkFrame):
         self._lbl_secao(self.frame_grid, "Dados da Substância & Parâmetros", row=r, columnspan=2)
         r += 1
 
+        nomes_substancias = [subst[1] for subst in self.substancias]
+
         self.combo_subst = ctk.CTkOptionMenu(
-            self.frame_grid, values=list(substancias_predefinidas.keys()), command=self._ao_alterar_substancia,
-            height=32, font=ctk.CTkFont(size=13)
+            self.frame_grid,
+            values=nomes_substancias if nomes_substancias else ["Nenhuma substância cadastrada"],
+            command=self._ao_alterar_substancia,
+            height=32,
+            font=ctk.CTkFont(size=13)
         )
         self.combo_subst.grid(row=r, column=0, columnspan=2, padx=5, pady=4, sticky="ew")
+        r += 1
+
+        # Botões para gerenciar substâncias
+        self.frame_botoes_substancia = ctk.CTkFrame(
+            self.frame_grid,
+            fg_color="transparent"
+        )
+        self.frame_botoes_substancia.grid(
+            row=r, column=0, columnspan=2,
+            padx=5, pady=4, sticky="ew"
+        )
+
+        self.frame_botoes_substancia.grid_columnconfigure(
+            (0, 1, 2), weight=1
+        )
+
+        self.btn_nova_substancia = ctk.CTkButton(
+            self.frame_botoes_substancia,
+            text="＋ Nova Substância",
+            command=self._nova_substancia
+        )
+        self.btn_nova_substancia.grid(
+            row=0, column=0, padx=3, sticky="ew"
+        )
+
+        self.btn_editar_substancia = ctk.CTkButton(
+            self.frame_botoes_substancia,
+            text="✏️ Editar",
+            command=self._editar_substancia,
+            state="disabled"
+        )
+        self.btn_editar_substancia.grid(
+            row=0, column=1, padx=3, sticky="ew"
+        )
+
+        self.btn_excluir_substancia = ctk.CTkButton(
+            self.frame_botoes_substancia,
+            text="🗑 Excluir",
+
+            state="disabled",
+            fg_color="#A83232",
+            hover_color="#812525"
+        )
+        self.btn_excluir_substancia.grid(
+            row=0, column=2, padx=3, sticky="ew"
+        )
+
         r += 1
 
         self.txt_subst_nome = self._entry_grid(self.frame_grid, "Nome da Substância", row=r, col=0)
@@ -145,24 +199,72 @@ class PainelParametros(ctk.CTkFrame):
             return ""
         return re.sub(r'\s+', ' ', texto).strip()
 
-    def _ao_alterar_substancia(self, escolha: str):
-        if escolha in self.substancias_predefinidas:
-            subst = self.substancias_predefinidas[escolha]
-            if isinstance(subst, dict):
-                self._set_text(self.txt_subst_nome, subst["nome"])
-                self._set_text(self.txt_subst_formula, subst["formula"])
-                self._set_text(self.txt_massa_molar, str(subst["massa_molar"]))
-                self._set_text(self.txt_entalpia, str(subst["entalpia"]))
-            else:
-                self._set_text(self.txt_subst_nome, subst.nome)
-                self._set_text(self.txt_subst_formula, subst.formula)
-                self._set_text(self.txt_massa_molar, str(subst.massa_molar))
-                self._set_text(self.txt_entalpia, str(subst.entalpia_formacao))
+    def _ao_alterar_substancia(self, escolha):
+        for subst in self.substancias:
+            if subst[1] == escolha:
+                # Guarda o ID da substância selecionada
+                self.substancia_selecionada_id = subst[0]
 
-            self._set_text(self.txt_temp_ini, "25.0")
-            self._set_text(self.txt_massa, "8.0")
-            self._set_text(self.txt_massa_total, "100.0")
-            self.on_selecionar_substancia(escolha)
+                self._set_text(self.txt_subst_nome, subst[1])
+                self._set_text(self.txt_subst_formula, subst[2])
+                self._set_text(self.txt_massa_molar, str(subst[3]))
+
+                self.modo_edicao_substancia = False
+                self._definir_edicao_substancia(False)
+
+                self.btn_editar_substancia.configure(state="normal")
+                self.btn_excluir_substancia.configure(state="normal")
+
+                self.on_selecionar_substancia(escolha)
+                break
+
+    def atualizar_lista_substancias(self, substancias: list):
+        self.substancias = substancias
+
+        nomes = [subst[1] for subst in substancias]
+
+        if nomes:
+            self.combo_subst.configure(values=nomes)
+
+            # Procura a substância pelo ID selecionado
+            substancia_encontrada = next(
+                (
+                    subst for subst in substancias
+                    if subst[0] == self.substancia_selecionada_id
+                ),
+                None
+            )
+
+            if substancia_encontrada:
+                self.combo_subst.set(substancia_encontrada[1])
+            else:
+                self.combo_subst.set(nomes[0])
+                self._ao_alterar_substancia(nomes[0])
+
+
+        else:
+
+            self.combo_subst.configure(
+
+                values=["Nenhuma substância cadastrada"]
+
+            )
+
+            self.combo_subst.set("Nenhuma substância cadastrada")
+
+            self.substancia_selecionada_id = None
+
+            self._set_text(self.txt_subst_nome, "")
+
+            self._set_text(self.txt_subst_formula, "")
+
+            self._set_text(self.txt_massa_molar, "")
+
+            self._definir_edicao_substancia(False)
+
+            self.btn_editar_substancia.configure(state="disabled")
+
+            self.btn_excluir_substancia.configure(state="disabled")
 
     def _ao_clicar_pausa(self):
         if hasattr(self.master, "alternar_pausa_experimento"):
@@ -188,6 +290,34 @@ class PainelParametros(ctk.CTkFrame):
 
         self.btn_historico.configure(state="normal")
         self.btn_excel.configure(state="normal")
+
+        # Botões de gerenciamento de substâncias
+        if status in ["Reagindo", "Pausado", "Finalizado"]:
+            self.btn_nova_substancia.configure(state="disabled")
+            self.btn_editar_substancia.configure(state="disabled")
+            self.btn_excluir_substancia.configure(state="disabled")
+
+
+        elif status == "Inativo":
+
+            print("Status:", status)
+
+            print("ID da substância selecionada:", self.substancia_selecionada_id)
+
+            self.btn_nova_substancia.configure(state="normal")
+
+            if self.substancia_selecionada_id is not None:
+
+                self.btn_editar_substancia.configure(state="normal")
+
+                self.btn_excluir_substancia.configure(state="normal")
+
+            else:
+
+                self.btn_editar_substancia.configure(state="disabled")
+
+                self.btn_excluir_substancia.configure(state="disabled")
+
 
         if status in ["Pausado", "Reagindo"]:
             for campo in todos_campos:
@@ -302,3 +432,27 @@ class PainelParametros(ctk.CTkFrame):
         for campo in campos_para_liberar:
             campo.configure(state="normal", fg_color=("#F9F9F9", "#343638"), text_color=("#000000", "#FFFFFF"))
         self.btn_calibrar.configure(state="normal", fg_color="gray40")
+
+    def _definir_edicao_substancia(self, habilitado):
+        estado = "normal" if habilitado else "disabled"
+
+        self.txt_subst_nome.configure(state=estado)
+        self.txt_subst_formula.configure(state=estado)
+        self.txt_massa_molar.configure(state=estado)
+
+    def _editar_substancia(self):
+        self.modo_edicao_substancia = True
+        self._definir_edicao_substancia(True)
+
+        self.btn_editar_substancia.configure(state="disabled")
+
+    def _nova_substancia(self):
+        self.modo_edicao_substancia = True
+        self.substancia_selecionada_id = None
+
+        self._set_text(self.txt_subst_nome, "")
+        self._set_text(self.txt_subst_formula, "")
+        self._set_text(self.txt_massa_molar, "")
+
+        self._definir_edicao_substancia(True)
+        self.btn_editar_substancia.configure(state="disabled")

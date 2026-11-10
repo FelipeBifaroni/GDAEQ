@@ -12,9 +12,62 @@ class ExperimentoController:
         self.experimento_id_db = None
         self.executando = False
 
+    def listar_substancias(self) -> list:
+        """Retorna as substâncias disponíveis no catálogo."""
+        return ExperimentoRepository.listar_substancias()
+
+    def cadastrar_substancia(
+            self,
+            nome: str,
+            formula: str,
+            massa_molar: float
+    ) -> int:
+        """Valida e cadastra uma nova substância no catálogo."""
+        nome = nome.strip()
+        formula = formula.strip()
+
+        if not nome:
+            raise ValueError("Informe o nome da substância.")
+
+        if not formula:
+            raise ValueError("Informe a fórmula química.")
+
+        try:
+            massa_molar = float(massa_molar)
+        except (TypeError, ValueError):
+            raise ValueError("A massa molar deve ser um valor numérico.")
+
+        if not math.isfinite(massa_molar) or massa_molar <= 0:
+            raise ValueError("A massa molar deve ser maior que zero.")
+
+        return ExperimentoRepository.cadastrar_substancia(
+            nome=nome,
+            formula=formula,
+            massa_molar=massa_molar
+        )
+
+    def excluir_substancia(self, substancia_id: int) -> bool:
+        """Valida e exclui uma substância do catálogo."""
+
+        if substancia_id is None:
+            raise ValueError("Selecione uma substância para excluir.")
+
+        try:
+            substancia_id = int(substancia_id)
+        except (TypeError, ValueError):
+            raise ValueError("ID de substância inválido.")
+
+        if substancia_id <= 0:
+            raise ValueError("ID de substância inválido.")
+
+        return ExperimentoRepository.excluir_substancia(
+            substancia_id=substancia_id
+        )
+
     def iniciar_ensaio(self, dados_form: dict) -> float:
         self.experimento.nome = dados_form["nome_exp"]
         self.experimento.descricao = dados_form.get("descricao", "")
+        self.experimento.entalpia_reacao = float(dados_form["entalpia"])
 
         # 1. Obter ou criar IDs reais para Professor, Turma e Substância
         prof_id_real = ExperimentoRepository.obter_ou_criar_professor(dados_form["professor"])
@@ -37,7 +90,7 @@ class ExperimentoController:
             formula=dados_form["subst_formula"],
             estado_fisico=dados_form["estado_fisico"],
             massa_molar=dados_form["massa_molar"],
-            entalpia=dados_form["entalpia"]
+            substancia_id=dados_form.get("substancia_id")
         )
 
         # Atualiza os objetos da memória
@@ -50,7 +103,6 @@ class ExperimentoController:
             formula=dados_form["subst_formula"],
             estado_fisico=dados_form["estado_fisico"],
             massa_molar=dados_form["massa_molar"],
-            entalpia_formacao=dados_form["entalpia"]
         )
 
         self.experimento.experimento_substancia = ExperimentoSubstancia(
@@ -91,6 +143,7 @@ class ExperimentoController:
                 turma_id=turma_id_real,
                 professor_id=prof_id_real,
                 descricao=self.experimento.descricao,
+                entalpia_reacao=dados_form["entalpia"],
                 temp_inicial=self.experimento.parametro_simulacao.temp_inicial,
                 massa_inicial_a=self.experimento.parametro_simulacao.massa_inicial_a,
                 massa_total=self.experimento.parametro_simulacao.massa_total,
@@ -299,7 +352,7 @@ class ExperimentoController:
             "subst_formula": subst_obj.formula if subst_obj else "",
             "massa_molar": subst_obj.massa_molar if subst_obj else 0.0,
             "massa_reagente": param.massa_inicial_a if param else 0.0,
-            "entalpia": subst_obj.entalpia_formacao if subst_obj else 0.0,
+            "entalpia": exp.entalpia_reacao,
             "temp_ini": param.temp_inicial if param else 25.0,
             "massa_total": param.massa_total if param else 100.0,
             "porta_com": exp.conexao_serial.porta_com if exp.conexao_serial else "COM3",
@@ -314,8 +367,13 @@ class ExperimentoController:
             return False
 
         # exp_info: [nome, tipo_reacao, descricao, prof_nome, turma_nome, subst_nome, subst_formula, massa_molar, entalpia, coeficiente]
-        self.experimento = Experimento(id_exp=experimento_id, nome=exp_info[0], tipo_reacao=exp_info[1],
-                                       descricao=exp_info[2] or "")
+        self.experimento = Experimento(
+            id_exp=experimento_id,
+            nome=exp_info[0],
+            tipo_reacao=exp_info[1],
+            descricao=exp_info[2] or "",
+            entalpia_reacao=exp_info[8] if exp_info[8] is not None else 0.0
+        )
         prof_id = exp_info[10] if exp_info[10] is not None else 1
         turma_id = exp_info[11] if exp_info[11] is not None else 1
 
@@ -330,7 +388,6 @@ class ExperimentoController:
                 formula=exp_info[6],
                 estado_fisico="Líquido",
                 massa_molar=exp_info[7],
-                entalpia_formacao=exp_info[8]
             )
             self.experimento.experimento_substancia = ExperimentoSubstancia(
                 id_exp_subst=exp_info[13],
@@ -382,7 +439,6 @@ class ExperimentoController:
             formula=dados_form["subst_formula"],
             estado_fisico=dados_form.get("estado_fisico", "Líquido"),
             massa_molar=dados_form["massa_molar"],
-            entalpia=dados_form["entalpia"]
         )
 
         # 2. Executa a atualização completa aproveitando a função unificada
@@ -392,6 +448,7 @@ class ExperimentoController:
             professor_id=prof_id_real,
             turma_id=turma_id_real,
             descricao=dados_form.get("descricao", ""),
+            entalpia_reacao=float(dados_form["entalpia"]),
             substancia_id=subst_id_real
         )
 
@@ -399,6 +456,7 @@ class ExperimentoController:
             # Atualiza os dados na memória RAM local do controller
             self.experimento.nome = dados_form["nome_exp"]
             self.experimento.descricao = dados_form.get("descricao", "")
+            self.experimento.entalpia_reacao = float(dados_form["entalpia"])
             self.experimento.professor = Professor(prof_id_real, dados_form["professor"])
             self.experimento.turma = Turma(turma_id_real, dados_form["turma"])
 
@@ -408,7 +466,6 @@ class ExperimentoController:
                 formula=dados_form["subst_formula"],
                 estado_fisico="Líquido",
                 massa_molar=dados_form["massa_molar"],
-                entalpia_formacao=dados_form["entalpia"]
             )
             if self.experimento.experimento_substancia:
                 self.experimento.experimento_substancia.substancia = subst_atualizada
@@ -488,7 +545,6 @@ class ExperimentoController:
         informacoes = [
             ("ID do experimento", self.experimento_id_db),
             ("Nome do experimento", exp_info[0]),
-            ("Tipo de reação", exp_info[1]),
             ("Data de realização", exp_info[14] or "Não informada"),
             ("Professor", exp_info[3] or "Não informado"),
             ("Turma", exp_info[4] or "Não informada"),

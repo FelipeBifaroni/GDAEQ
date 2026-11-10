@@ -18,14 +18,19 @@ class Turma:
 
 
 class Substancia:
-    def __init__(self, id_subst: int, nome: str, formula: str, estado_fisico: str,
-                 massa_molar: float, entalpia_formacao: float):
+    def __init__(
+        self,
+        id_subst: int,
+        nome: str,
+        formula: str,
+        estado_fisico: str,
+        massa_molar: float
+    ):
         self.id = id_subst
         self.nome = nome
         self.formula = formula
         self.estado_fisico = estado_fisico
         self.massa_molar = massa_molar
-        self.entalpia_formacao = entalpia_formacao
 
 
 
@@ -72,6 +77,7 @@ class GemeoDigital:
 
 
 
+
 class ConexaoSerial:
     def __init__(self, porta_com: str = "COM3", baud_rate: int = 9600):
         self.porta_com = porta_com
@@ -81,8 +87,16 @@ class ConexaoSerial:
         self.ganho_temperatura: float = 1.0
         self.serial_conn = None
 
+        # Modo temporário de simulação
+        self.modo_simulacao = False
+        self.temperatura_fixa = 25.0
+
     def conectar(self) -> bool:
-        # Evita abrir novamente uma conexão já existente.
+        if self.modo_simulacao:
+            self.conexao_ativa = True
+            print("Modo de simulação ativado: temperatura fixa.")
+            return True
+
         if (
             self.serial_conn is not None
             and self.serial_conn.is_open
@@ -97,7 +111,6 @@ class ConexaoSerial:
                 timeout=3
             )
 
-            # O Arduino reinicia ao abrir a porta serial.
             time.sleep(2)
             self.serial_conn.reset_input_buffer()
 
@@ -119,41 +132,51 @@ class ConexaoSerial:
         self.conexao_ativa = False
 
     def ler_dados_temp(self, temp_base: float = 25.0) -> float:
-        if (
-            not self.conexao_ativa
-            or self.serial_conn is None
-            or not self.serial_conn.is_open
-        ):
-            raise ConnectionError("Arduino não está conectado.")
+        if not self.conexao_ativa:
+            raise ConnectionError("Conexão não está ativa.")
 
-        try:
-            linha = self.serial_conn.readline().decode(
-                "utf-8", errors="ignore"
-            ).strip()
+        # Retorna temperatura fixa no modo de simulação
+        if self.modo_simulacao:
+            leitura_bruta = self.temperatura_fixa
+        else:
+            if (
+                self.serial_conn is None
+                or not self.serial_conn.is_open
+            ):
+                raise ConnectionError("Arduino não está conectado.")
 
-        except serial.SerialException as erro:
-            self.conexao_ativa = False
-            raise ConnectionError(
-                f"Erro na comunicação com o Arduino: {erro}"
-            ) from erro
+            try:
+                linha = self.serial_conn.readline().decode(
+                    "utf-8", errors="ignore"
+                ).strip()
 
-        if not linha:
-            raise TimeoutError("O Arduino não enviou uma temperatura.")
+            except serial.SerialException as erro:
+                self.conexao_ativa = False
+                raise ConnectionError(
+                    f"Erro na comunicação com o Arduino: {erro}"
+                ) from erro
 
-        try:
-            leitura_bruta = float(linha)
-        except ValueError as erro:
-            raise ValueError(
-                f"Leitura inválida recebida do Arduino: {linha}"
-            ) from erro
+            if not linha:
+                raise TimeoutError(
+                    "O Arduino não enviou uma temperatura."
+                )
 
-        if leitura_bruta == -127.0:
-            raise ValueError(
-                "Sensor DS18B20 desconectado ou não encontrado."
-            )
+            try:
+                leitura_bruta = float(linha)
+            except ValueError as erro:
+                raise ValueError(
+                    f"Leitura inválida recebida do Arduino: {linha}"
+                ) from erro
 
-        if not math.isfinite(leitura_bruta):
-            raise ValueError("Temperatura inválida recebida do Arduino.")
+            if leitura_bruta == -127.0:
+                raise ValueError(
+                    "Sensor DS18B20 desconectado ou não encontrado."
+                )
+
+            if not math.isfinite(leitura_bruta):
+                raise ValueError(
+                    "Temperatura inválida recebida do Arduino."
+                )
 
         return (
             leitura_bruta * self.ganho_temperatura
@@ -161,6 +184,7 @@ class ConexaoSerial:
 
     def executar_tara(self) -> None:
         self.offset_temperatura = 0.0
+
 
 
 
@@ -182,14 +206,22 @@ class LogAlerta:
 
 
 class Experimento:
-    def __init__(self, id_exp: int = 1, nome: str = "Ensaio Calorimétrico", tipo_reacao: str = "Dissolução",
-                 descricao: str = ""):
+    def __init__(
+        self,
+        id_exp: int = 1,
+        nome: str = "Ensaio Calorimétrico",
+        tipo_reacao: str = "Dissolução",
+        descricao: str = "",
+        entalpia_reacao: float = 0.0
+    ):
         self.id = id_exp
         self.nome = nome
         self.tipo_reacao = tipo_reacao
         self.data_realizacao = datetime.now()
         self.status = "Inativo"
         self.descricao = descricao
+        self.entalpia_reacao = entalpia_reacao
+
 
         self.professor = None
         self.turma = None
@@ -208,7 +240,7 @@ class Experimento:
     def calcular_calorimetria(self) -> float:
         massa_g = self.parametro_simulacao.massa_inicial_a
         massa_molar = self.experimento_substancia.substancia.massa_molar
-        entalpia_kj_mol = self.experimento_substancia.substancia.entalpia_formacao
+        entalpia_kj_mol = self.entalpia_reacao
         massa_total = self.parametro_simulacao.massa_total
 
         # Proteção contra divisão por zero (caso o volume ou massa molar sejam 0)

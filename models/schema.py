@@ -18,8 +18,7 @@ CREATE TABLE IF NOT EXISTS Substancia (
     nome TEXT NOT NULL,
     formula TEXT NOT NULL,
     estado_fisico TEXT NOT NULL,
-    massa_molar REAL NOT NULL,
-    entalpia_formacao REAL NOT NULL
+    massa_molar REAL NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS Experimento (
@@ -30,6 +29,7 @@ CREATE TABLE IF NOT EXISTS Experimento (
     turma_id INTEGER NOT NULL,
     professor_id INTEGER NOT NULL,
     descricao TEXT,
+    entalpia_reacao REAL,
     FOREIGN KEY (turma_id) REFERENCES Turma(id) ON DELETE RESTRICT,
     FOREIGN KEY (professor_id) REFERENCES Professor(id) ON DELETE RESTRICT
 );
@@ -40,6 +40,12 @@ CREATE TABLE IF NOT EXISTS Experimento_Substancia (
     substancia_id INTEGER NOT NULL,
     papel TEXT NOT NULL,
     coeficiente_estequiometrico INTEGER NOT NULL,
+
+    -- Snapshot dos dados da substância no momento do experimento
+    nome_snapshot TEXT NOT NULL,
+    formula_snapshot TEXT NOT NULL,
+    massa_molar_snapshot REAL NOT NULL,
+
     FOREIGN KEY (experimento_id) REFERENCES Experimento(id) ON DELETE CASCADE,
     FOREIGN KEY (substancia_id) REFERENCES Substancia(id) ON DELETE RESTRICT
 );

@@ -19,10 +19,7 @@ class MainView(ctk.CTk):
         self.controller = ExperimentoController()
         self.sensor_controller = SensorController(self.controller)
 
-        self.substancias_predefinidas = {
-            "Nitrato de Amônio (NH4NO3 - Endotérmica)": {"nome": "Nitrato de Amônio", "formula": "NH4NO3", "estado": "Sólido", "massa_molar": 80.04, "entalpia": 25.7},
-            "Hidróxido de Sódio (NaOH - Exotérmica)": {"nome": "Hidróxido de Sódio", "formula": "NaOH", "estado": "Sólido", "massa_molar": 39.99, "entalpia": -44.51},
-        }
+        self.substancias = self.controller.listar_substancias()
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=3)
@@ -30,11 +27,12 @@ class MainView(ctk.CTk):
 
         self.painel_esq = PainelParametros(
             self,
-            self.substancias_predefinidas,
+            self.substancias,
             lambda s: None,
             cmd_historico=self._abrir_historico,
             cmd_excel=self._exportar_excel,
-            cmd_logs=self._abrir_janela_logs)
+            cmd_logs=self._abrir_janela_logs
+        )
         self.painel_esq.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
         self._criar_painel_direito()
@@ -89,6 +87,53 @@ class MainView(ctk.CTk):
         self.painel_esq.btn_excel.configure(command=self._exportar_excel)
         self.painel_esq.btn_historico.configure(command=self._abrir_historico)
         self.painel_esq.btn_atualizar.configure(command=self._ao_clicar_atualizar)
+        self.painel_esq.btn_excluir_substancia.configure(
+            command=self._confirmar_e_excluir_substancia
+        )
+
+    def _confirmar_e_excluir_substancia(self):
+        substancia_id = self.painel_esq.substancia_selecionada_id
+
+        if substancia_id is None:
+            messagebox.showwarning(
+                "Atenção",
+                "Selecione uma substância para excluir."
+            )
+            return
+
+        nome = self.painel_esq.txt_subst_nome.get().strip()
+
+        confirmar = messagebox.askyesno(
+            "Confirmar exclusão",
+            f"Tem certeza que deseja excluir a substância '{nome}'?\n\n"
+            "Essa ação não poderá ser desfeita."
+        )
+
+        if not confirmar:
+            return
+
+        try:
+            self.controller.excluir_substancia(substancia_id)
+
+            # Atualiza a lista de substâncias
+            substancias = self.controller.listar_substancias()
+            self.painel_esq.atualizar_lista_substancias(substancias)
+
+
+
+            messagebox.showinfo(
+                "Sucesso",
+                f"A substância '{nome}' foi excluída com sucesso."
+            )
+
+        except ValueError as e:
+            messagebox.showwarning("Não foi possível excluir", str(e))
+
+        except Exception as e:
+            messagebox.showerror(
+                "Erro",
+                f"Não foi possível excluir a substância:\n{str(e)}"
+            )
 
     def _iniciar_ensaio(self):
         if self.painel_esq.btn_iniciar.cget("text") == "✨ Novo Experimento":
@@ -97,6 +142,8 @@ class MainView(ctk.CTk):
         try:
             self.painel_esq.liberar_parametros_fisicos()
             dados = self.painel_esq.obter_dados_formulario()
+
+            dados["substancia_id"] = self.painel_esq.substancia_selecionada_id
             dados["descricao"] = self.txt_exp_desc.get("1.0", "end-1c").strip()
 
             # --- VALIDAÇÃO DE CAMPOS DE TEXTO OBRIGATÓRIOS ---
@@ -117,6 +164,9 @@ class MainView(ctk.CTk):
 
             # Inicia o ensaio apenas se todas as validações passarem
             delta_t = self.controller.iniciar_ensaio(dados)
+            self.painel_esq.atualizar_lista_substancias(
+                self.controller.listar_substancias()
+            )
 
             self.dashboard_gui.limpar()
 

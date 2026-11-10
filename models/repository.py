@@ -12,6 +12,7 @@ class ExperimentoRepository:
             turma_id,
             professor_id,
             descricao,
+            entalpia_reacao,
             temp_inicial,
             massa_inicial_a,
             massa_total,
@@ -21,9 +22,8 @@ class ExperimentoRepository:
     ):
         """
         Salva o experimento, seus parâmetros e a associação
-        com a substância em uma única transação.
-
-        Retorna os IDs gerados pelo banco:
+        com a substância, incluindo uma cópia dos dados dela.
+        Retorna os IDs:
         (experimento_id, parametro_id, exp_subst_id).
         """
         with conectar_bd() as conexao:
@@ -33,10 +33,10 @@ class ExperimentoRepository:
             cursor.execute(
                 """
                 INSERT INTO Experimento
-                    (nome, tipo_reacao, turma_id, professor_id, descricao)
-                VALUES (?, ?, ?, ?, ?);
+                    (nome, tipo_reacao, turma_id, professor_id, descricao, entalpia_reacao)
+                VALUES (?, ?, ?, ?, ?, ?);
                 """,
-                (nome, tipo_reacao, turma_id, professor_id, descricao)
+                (nome, tipo_reacao, turma_id, professor_id, descricao, entalpia_reacao)
             )
             experimento_id = cursor.lastrowid
 
@@ -51,16 +51,28 @@ class ExperimentoRepository:
             )
             parametro_id = cursor.lastrowid
 
-            # 3. Salvar a associação com a substância
+            # 3. Salvar a associação e os dados históricos da substância
             cursor.execute(
                 """
-                INSERT INTO Experimento_Substancia
-                    (experimento_id, substancia_id, papel,
-                     coeficiente_estequiometrico)
-                VALUES (?, ?, ?, ?);
+                INSERT INTO Experimento_Substancia (
+                    experimento_id,
+                    substancia_id,
+                    papel,
+                    coeficiente_estequiometrico,
+                    nome_snapshot,
+                    formula_snapshot,
+                    massa_molar_snapshot
+                )
+                SELECT ?, s.id, ?, ?, s.nome, s.formula, s.massa_molar
+                FROM Substancia s
+                WHERE s.id = ?;
                 """,
-                (experimento_id, substancia_id, papel, coeficiente)
+                (experimento_id, papel, coeficiente, substancia_id)
             )
+
+            if cursor.rowcount == 0:
+                raise ValueError("A substância selecionada não foi encontrada.")
+
             exp_subst_id = cursor.lastrowid
 
             return experimento_id, parametro_id, exp_subst_id
@@ -81,24 +93,88 @@ class ExperimentoRepository:
             conexao.commit()
 
     @staticmethod
-    def obter_ou_criar_substancia(nome, formula, estado_fisico, massa_molar, entalpia):
-        """Busca a substância pelo nome ou insere-a se não existir, retornando o ID."""
+    def obter_ou_criar_substancia(
+            nome, formula, estado_fisico, massa_molar, substancia_id=None
+    ):
         with conectar_bd() as conexao:
             cursor = conexao.cursor()
-            # Tenta encontrar pelo nome
-            cursor.execute("SELECT id FROM Substancia WHERE nome = ?;", (nome,))
+
+            # Se recebeu um ID, atualiza a substância existente
+            if substancia_id is not None:
+                cursor.execute("""
+                    UPDATE Substancia
+                    SET nome = ?, formula = ?, estado_fisico = ?, massa_molar = ?
+                    WHERE id = ?;
+                """, (nome, formula, estado_fisico, massa_molar, substancia_id))
+
+                if cursor.rowcount == 0:
+                    raise ValueError("A substância selecionada não foi encontrada.")
+
+                return substancia_id
+
+            # Se não recebeu ID, verifica se já existe pelo nome
+            cursor.execute(
+                "SELECT id FROM Substancia WHERE nome = ?;",
+                (nome,)
+            )
             resultado = cursor.fetchone()
 
             if resultado:
                 return resultado[0]
 
-            # Se não existe, insere
-            sql = """
-                  INSERT INTO Substancia (nome, formula, estado_fisico, massa_molar, entalpia_formacao)
-                  VALUES (?, ?, ?, ?, ?); \
-                  """
-            cursor.execute(sql, (nome, formula, estado_fisico, massa_molar, entalpia))
-            conexao.commit()
+            # Se não existe, cadastra uma nova
+            cursor.execute("""
+                INSERT INTO Substancia (nome, formula, estado_fisico, massa_molar)
+                VALUES (?, ?, ?, ?);
+            """, (nome, formula, estado_fisico, massa_molar))
+
+            return cursor.lastrowid
+
+
+    @staticmethod
+    def listar_substancias():
+        """Retorna todas as substâncias cadastradas, em ordem alfabética."""
+        sql = """
+            SELECT id, nome, formula, massa_molar
+            FROM Substancia
+            ORDER BY nome COLLATE NOCASE ASC;
+        """
+
+        with conectar_bd() as conexao:
+            cursor = conexao.cursor()
+            cursor.execute(sql)
+            return cursor.fetchall()
+
+    @staticmethod
+    def cadastrar_substancia(nome, formula, massa_molar):
+        """Cadastra uma substância no catálogo e retorna seu ID."""
+        with conectar_bd() as conexao:
+            cursor = conexao.cursor()
+
+            cursor.execute(
+                "SELECT id FROM Substancia WHERE nome = ? COLLATE NOCASE;",
+                (nome.strip(),)
+            )
+
+            if cursor.fetchone():
+                raise ValueError(
+                    "Já existe uma substância cadastrada com esse nome."
+                )
+
+            cursor.execute(
+                """
+                INSERT INTO Substancia
+                    (nome, formula, estado_fisico, massa_molar)
+                VALUES (?, ?, ?, ?);
+                """,
+                (
+                    nome.strip(),
+                    formula.strip(),
+                    "Líquido",
+                    massa_molar
+                )
+            )
+
             return cursor.lastrowid
 
     @staticmethod
@@ -164,29 +240,29 @@ class ExperimentoRepository:
             cursor = conexao.cursor()
 
             # 1. Dados do cabeçalho, professor, turma e substância
-            cursor.execute("""
-                SELECT e.nome,
-                       e.tipo_reacao,
-                       e.descricao,
-                       p.nome,
-                       t.nome,
-                       s.nome,
-                       s.formula,
-                       s.massa_molar,
-                       s.entalpia_formacao,
-                       es.coeficiente_estequiometrico,
-                       e.professor_id,
-                       e.turma_id,
-                       s.id, 
-                       es.id,
-                       e.data_realizacao
-                FROM Experimento e
-                LEFT JOIN Professor p ON e.professor_id = p.id
-                LEFT JOIN Turma t ON e.turma_id = t.id
-                LEFT JOIN Experimento_Substancia es
-                    ON e.id = es.experimento_id
-                LEFT JOIN Substancia s ON es.substancia_id = s.id
-                WHERE e.id = ?;
+            cursor.execute("""        
+                    SELECT e.nome,
+                           e.tipo_reacao,
+                           e.descricao,
+                           p.nome,
+                           t.nome,
+                           es.nome_snapshot,
+                           es.formula_snapshot,
+                           es.massa_molar_snapshot,
+                           e.entalpia_reacao,
+                           es.coeficiente_estequiometrico,
+                           e.professor_id,
+                           e.turma_id,
+                           s.id,
+                           es.id,
+                           e.data_realizacao
+                    FROM Experimento e
+                    LEFT JOIN Professor p ON e.professor_id = p.id
+                    LEFT JOIN Turma t ON e.turma_id = t.id
+                    LEFT JOIN Experimento_Substancia es
+                        ON e.id = es.experimento_id
+                    LEFT JOIN Substancia s ON es.substancia_id = s.id
+                    WHERE e.id = ?;
             """, (experimento_id,))
 
             exp_info = cursor.fetchone()
@@ -266,34 +342,107 @@ class ExperimentoRepository:
             cursor.execute(sql)
             return cursor.fetchall()
 
-
     @staticmethod
-    def atualizar_cabecalho_experimento(experimento_id: int, nome_exp: str, professor_id: int, turma_id: int,
-                                        descricao: str, substancia_id: int):
-        """Atualiza a identificação, descrição e a substância associada do registo."""
-        sql_experimento = """
-                  UPDATE Experimento
-                  SET nome         = ?, 
-                      professor_id = ?, 
-                      turma_id     = ?, 
-                      descricao    = ?
-                  WHERE id = ?;
-                  """
-
-        sql_substancia_relacao = """
-                  UPDATE Experimento_Substancia
-                  SET substancia_id = ?
-                  WHERE experimento_id = ?;
-                  """
+    def atualizar_cabecalho_experimento(
+            experimento_id: int,
+            nome_exp: str,
+            professor_id: int,
+            turma_id: int,
+            descricao: str,
+            entalpia_reacao: float,
+            substancia_id: int
+    ):
+        """Atualiza os dados principais do experimento,
+            incluindo sua entalpia de reação e os snapshots da substância associada."""
 
         with conectar_bd() as conexao:
             cursor = conexao.cursor()
 
-            # 1. Atualiza os dados principais do experimento
-            cursor.execute(sql_experimento, (nome_exp, professor_id, turma_id, descricao, experimento_id))
+            # 1. Verifica se a substância existe e obtém seus dados atuais
+            cursor.execute(
+                """
+                SELECT nome, formula, massa_molar
+                FROM Substancia
+                WHERE id = ?;
+                """,
+                (substancia_id,)
+            )
 
-            # 2. Atualiza a associação da substância do experimento
-            cursor.execute(sql_substancia_relacao, (substancia_id, experimento_id))
+            substancia = cursor.fetchone()
 
-            conexao.commit()
+            if not substancia:
+                raise ValueError("A substância selecionada não foi encontrada.")
+
+            nome_substancia, formula, massa_molar = substancia
+
+            # 2. Atualiza os dados principais do experimento
+            cursor.execute(
+                """
+                UPDATE Experimento
+                SET nome = ?,
+                    professor_id = ?,
+                    turma_id = ?,
+                    descricao = ?,
+                    entalpia_reacao = ?
+                WHERE id = ?;
+                """,
+                (
+                    nome_exp,
+                    professor_id,
+                    turma_id,
+                    descricao,
+                    entalpia_reacao,
+                    experimento_id
+                )
+            )
+
+            if cursor.rowcount == 0:
+                raise ValueError("O experimento não foi encontrado.")
+
+            # 3. Atualiza a associação e os snapshots
+            cursor.execute(
+                """
+                UPDATE Experimento_Substancia
+                SET substancia_id = ?,
+                    nome_snapshot = ?,
+                    formula_snapshot = ?,
+                    massa_molar_snapshot = ?
+                WHERE experimento_id = ?;
+                """,
+                (
+                    substancia_id,
+                    nome_substancia,
+                    formula,
+                    massa_molar,
+                    experimento_id
+                )
+            )
+
+            if cursor.rowcount == 0:
+                raise ValueError(
+                    "Não foi encontrada uma substância associada ao experimento."
+                )
+
             return True
+
+    @staticmethod
+    def excluir_substancia(substancia_id):
+        try:
+            with conectar_bd() as conexao:
+                cursor = conexao.cursor()
+
+                cursor.execute(
+                    "DELETE FROM Substancia WHERE id = ?;",
+                    (substancia_id,)
+                )
+
+                if cursor.rowcount == 0:
+                    raise ValueError("Substância não encontrada.")
+
+                return True
+
+        except sqlite3.IntegrityError:
+            raise ValueError(
+                "Não é possível excluir esta substância, "
+                "pois ela está vinculada a um ou mais experimentos."
+            )
