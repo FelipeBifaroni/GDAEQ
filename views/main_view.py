@@ -1,11 +1,16 @@
-from datetime import datetime
+import webbrowser
+from urllib.parse import urlencode
 from tkinter import messagebox, filedialog
 import customtkinter as ctk
 from views.componentes.painel_parametros import PainelParametros
 from views.componentes.dashboard_gui import DashboardGUI
 from controllers.sensor_controller import SensorController
 from controllers.experimento_controller import ExperimentoController
+from controllers.backup_controller import BackupController
 from tkinter import ttk
+import os
+import tempfile
+from datetime import datetime
 
 
 class MainView(ctk.CTk):
@@ -18,6 +23,7 @@ class MainView(ctk.CTk):
 
         self.controller = ExperimentoController()
         self.sensor_controller = SensorController(self.controller)
+        self.backup_controller = BackupController()
 
         self.substancias = self.controller.listar_substancias()
 
@@ -37,6 +43,7 @@ class MainView(ctk.CTk):
 
         self._criar_painel_direito()
         self._vincular_eventos()
+
 
         self.after_telemetria_id = None
 
@@ -64,6 +71,42 @@ class MainView(ctk.CTk):
 
         self.lbl_temp_sim = ctk.CTkLabel(self.frame_status, text="Gêmeo Digital: -- °C", font=ctk.CTkFont(size=13))
         self.lbl_temp_sim.pack(side="left", padx=10, pady=10)
+
+        # Backup
+        self.btn_backup = ctk.CTkButton(
+            self.frame_status,
+            text="💾 Backup",
+            width=100,
+            height=32,
+            fg_color="#1F6AA5",
+            hover_color="#144870",
+            command=self._abrir_opcoes_backup
+        )
+        self.btn_backup.pack(side="right", padx=5, pady=5)
+
+        # Restaurar backup
+        self.btn_restaurar = ctk.CTkButton(
+            self.frame_status,
+            text="📂 Restaurar",
+            width=110,
+            height=32,
+            fg_color="#238636",
+            hover_color="#19692c",
+            command=self._restaurar_backup
+        )
+        self.btn_restaurar.pack(side="right", padx=5, pady=5)
+
+        # Contato
+        self.btn_fale_conosco = ctk.CTkButton(
+            self.frame_status,
+            text="✉ Fale Conosco",
+            width=130,
+            height=32,
+            fg_color="#555555",
+            hover_color="#3d3d3d",
+            command=self._abrir_fale_conosco
+        )
+        self.btn_fale_conosco.pack(side="right", padx=5, pady=5)
 
         # Matplotlib Frame
         self.frame_grafico = ctk.CTkFrame(self.frame_direito, fg_color="#1e1e1e")
@@ -542,11 +585,10 @@ class MainView(ctk.CTk):
                         self.dashboard_gui.renderizar_ponto(ponto["dado_obj"])
 
 
+
         except Exception as e:
 
             print(f"⚠️ Erro capturado no loop de telemetria: {e}")
-
-            self.parar_loop_telemetria()
 
             return
 
@@ -996,3 +1038,410 @@ class MainView(ctk.CTk):
             command=janela_logs.destroy
         )
         btn_fechar.pack(side="right", padx=5)
+
+    def _abrir_fale_conosco(self):
+        """Abre o formulário de contato da equipe GDAEQ."""
+
+        janela = ctk.CTkToplevel(self)
+        janela.title("Fale Conosco - GDAEQ")
+        janela.geometry("500x590")
+        janela.resizable(False, False)
+        janela.transient(self)
+        janela.grab_set()
+
+        # Cabeçalho
+        ctk.CTkLabel(
+            janela,
+            text="✉ Fale Conosco",
+            font=ctk.CTkFont(size=24, weight="bold")
+        ).pack(pady=(25, 5))
+
+        ctk.CTkLabel(
+            janela,
+            text="Envie suas dúvidas, sugestões ou relate um problema.",
+            font=ctk.CTkFont(size=12),
+            text_color="gray"
+        ).pack(pady=(0, 20))
+
+        # Tipo de mensagem
+        ctk.CTkLabel(
+            janela,
+            text="Tipo de mensagem:",
+            font=ctk.CTkFont(size=13, weight="bold")
+        ).pack(anchor="w", padx=30, pady=(5, 5))
+
+        combo_tipo = ctk.CTkComboBox(
+            janela,
+            values=["Dúvida", "Sugestão", "Relatar problema"],
+            width=440,
+            state="readonly"
+        )
+        combo_tipo.pack(padx=30, pady=(0, 12))
+        combo_tipo.set("Dúvida")
+
+        # Nome
+        ctk.CTkLabel(
+            janela,
+            text="Seu nome:",
+            font=ctk.CTkFont(size=13, weight="bold")
+        ).pack(anchor="w", padx=30, pady=(5, 5))
+
+        entrada_nome = ctk.CTkEntry(
+            janela,
+            placeholder_text="Digite seu nome",
+            width=440
+        )
+        entrada_nome.pack(padx=30, pady=(0, 12))
+
+        # E-mail
+        ctk.CTkLabel(
+            janela,
+            text="Seu e-mail:",
+            font=ctk.CTkFont(size=13, weight="bold")
+        ).pack(anchor="w", padx=30, pady=(5, 5))
+
+        entrada_email = ctk.CTkEntry(
+            janela,
+            placeholder_text="seuemail@exemplo.com",
+            width=440
+        )
+        entrada_email.pack(padx=30, pady=(0, 12))
+
+        # Mensagem
+        ctk.CTkLabel(
+            janela,
+            text="Mensagem:",
+            font=ctk.CTkFont(size=13, weight="bold")
+        ).pack(anchor="w", padx=30, pady=(5, 5))
+
+        campo_mensagem = ctk.CTkTextbox(
+            janela,
+            width=440,
+            height=120
+        )
+        campo_mensagem.pack(padx=30, pady=(0, 15))
+
+        def enviar_mensagem():
+            nome = entrada_nome.get().strip()
+            email = entrada_email.get().strip()
+            tipo = combo_tipo.get()
+            mensagem = campo_mensagem.get("1.0", "end-1c").strip()
+
+            if not nome or not email or not mensagem:
+                messagebox.showwarning(
+                    "Campos obrigatórios",
+                    "Preencha seu nome, e-mail e mensagem.",
+                    parent=janela
+                )
+                return
+
+            if "@" not in email or "." not in email.split("@")[-1]:
+                messagebox.showwarning(
+                    "E-mail inválido",
+                    "Informe um endereço de e-mail válido.",
+                    parent=janela
+                )
+                return
+
+            destinatario = "gdaeqoficial@gmail.com"
+
+            assunto = f"[GDAEQ] {tipo}"
+
+            corpo = (
+                f"Tipo de mensagem: {tipo}\n\n"
+                f"Nome: {nome}\n"
+                f"E-mail para resposta: {email}\n\n"
+                f"Mensagem:\n{mensagem}"
+            )
+
+            parametros = urlencode({
+                "subject": assunto,
+                "body": corpo
+            })
+
+            link_email = f"mailto:{destinatario}?{parametros}"
+
+            try:
+                abriu = webbrowser.open(link_email)
+
+                if abriu:
+                    messagebox.showinfo(
+                        "Mensagem preparada",
+                        "Seu programa de e-mail foi aberto com a mensagem "
+                        "preenchida.\n\nRevise e clique em Enviar para "
+                        "concluir o envio.",
+                        parent=janela
+                    )
+                    janela.destroy()
+                else:
+                    messagebox.showerror(
+                        "Erro",
+                        "Não foi possível abrir o programa de e-mail. "
+                        "Verifique se existe um aplicativo de e-mail "
+                        "configurado no computador.",
+                        parent=janela
+                    )
+
+            except Exception as erro:
+                messagebox.showerror(
+                    "Erro ao preparar mensagem",
+                    f"Não foi possível abrir o e-mail:\n{erro}",
+                    parent=janela
+                )
+
+        # Botão enviar
+        ctk.CTkButton(
+            janela,
+            text="✉ Preparar e-mail",
+            width=440,
+            height=40,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            command=enviar_mensagem
+        ).pack(padx=30, pady=(5, 20))
+
+        # Rodapé
+        ctk.CTkLabel(
+            janela,
+            text="Equipe GDAEQ | gdaeqoficial@gmail.com",
+            font=ctk.CTkFont(size=11),
+            text_color="gray"
+        ).pack(pady=(0, 10))
+
+    def _fazer_backup(self):
+        caminho = filedialog.asksaveasfilename(
+            title="Salvar backup do GDAEQ",
+            defaultextension=".db",
+            filetypes=[("Banco de dados SQLite", "*.db")],
+            initialfile="Backup_GDAEQ.db"
+        )
+
+        if not caminho:
+            return
+
+        try:
+            arquivo = self.backup_controller.fazer_backup(caminho)
+
+            messagebox.showinfo(
+                "Backup concluído",
+                f"Backup salvo com sucesso!\n\nLocal:\n{arquivo}"
+            )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Erro no backup",
+                f"Não foi possível criar o backup:\n{e}"
+            )
+
+        def _restaurar_backup(self):
+            # Impede a restauração durante um experimento em execução
+            if self.controller.executando:
+                messagebox.showwarning(
+                    "Experimento em andamento",
+                    "Finalize ou interrompa o experimento antes de restaurar um backup."
+                )
+                return
+
+            caminho = filedialog.askopenfilename(
+                title="Selecionar backup do GDAEQ",
+                filetypes=[("Banco de dados SQLite", "*.db")]
+            )
+
+            if not caminho:
+                return
+
+            confirmar = messagebox.askyesno(
+                "Confirmar restauração",
+                "A restauração substituirá os dados atuais pelos dados do backup.\n\n"
+                "Uma cópia de segurança do banco atual será criada antes da substituição.\n\n"
+                "Deseja continuar?"
+            )
+
+            if not confirmar:
+                return
+
+            try:
+                self.backup_controller.restaurar_backup(caminho)
+
+                messagebox.showinfo(
+                    "Restauração concluída",
+                    "O backup foi restaurado com sucesso!\n\n"
+                    "Feche e abra novamente o GDAEQ para carregar os dados restaurados."
+                )
+
+            except Exception as e:
+                messagebox.showerror(
+                    "Erro na restauração",
+                    f"Não foi possível restaurar o backup:\n{e}"
+                )
+
+    def _restaurar_backup(self):
+        # Impede a restauração durante um experimento em execução
+        if self.controller.executando:
+            messagebox.showwarning(
+                "Experimento em andamento",
+                "Finalize ou interrompa o experimento antes de restaurar um backup."
+            )
+            return
+
+        caminho = filedialog.askopenfilename(
+            title="Selecionar backup do GDAEQ",
+            filetypes=[("Banco de dados SQLite", "*.db")]
+        )
+
+        if not caminho:
+            return
+
+        confirmar = messagebox.askyesno(
+            "Confirmar restauração",
+            "A restauração substituirá os dados atuais pelos dados do backup.\n\n"
+            "Uma cópia de segurança do banco atual será criada antes da substituição.\n\n"
+            "Deseja continuar?"
+        )
+
+        if not confirmar:
+            return
+
+        try:
+            self.backup_controller.restaurar_backup(caminho)
+
+            messagebox.showinfo(
+                "Restauração concluída",
+                "O backup foi restaurado com sucesso!\n\n"
+                "Feche e abra novamente o GDAEQ para carregar os dados restaurados."
+            )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Erro na restauração",
+                f"Não foi possível restaurar o backup:\n{e}"
+            )
+
+    def _abrir_opcoes_backup(self):
+        """Exibe as opções para salvar ou enviar um backup."""
+
+        janela = ctk.CTkToplevel(self)
+        janela.title("Backup do GDAEQ")
+        janela.geometry("430x300")
+        janela.resizable(False, False)
+        janela.transient(self)
+        janela.grab_set()
+
+        ctk.CTkLabel(
+            janela,
+            text="💾 Backup do GDAEQ",
+            font=ctk.CTkFont(size=22, weight="bold")
+        ).pack(pady=(22, 5))
+
+        ctk.CTkLabel(
+            janela,
+            text="Escolha como deseja guardar seus dados.",
+            text_color="gray"
+        ).pack(pady=(0, 15))
+
+        entrada_email = ctk.CTkEntry(
+            janela,
+            width=360,
+            placeholder_text="E-mail de destino (para envio)"
+        )
+        entrada_email.pack(pady=(0, 15))
+
+        def enviar_backup():
+            email = entrada_email.get().strip()
+
+            if not email or "@" not in email or "." not in email.split("@")[-1]:
+                messagebox.showwarning(
+                    "E-mail inválido",
+                    "Informe um endereço de e-mail válido.",
+                    parent=janela
+                )
+                return
+
+            try:
+                # Gera o backup na pasta temporária do computador
+                from pathlib import Path
+
+                pasta_backup = Path.home() / ".gdaeq"
+                pasta_backup.mkdir(parents=True, exist_ok=True)
+
+                nome_arquivo = (
+                    f"Backup_GDAEQ_{datetime.now():%Y%m%d_%H%M%S}.db"
+                )
+
+                caminho = pasta_backup / nome_arquivo
+
+                arquivo = self.backup_controller.fazer_backup(str(caminho))
+
+                assunto = "[GDAEQ] Backup do banco de dados"
+                corpo = (
+                    "Olá!\n\n"
+                    "Estou enviando o backup do banco de dados do GDAEQ.\n\n"
+                    "O arquivo de backup deve ser anexado a este e-mail.\n\n"
+                    "Atenciosamente."
+                )
+
+                parametros = urlencode({
+                    "subject": assunto,
+                    "body": corpo
+                })
+
+                link_email = f"mailto:{email}?{parametros}"
+
+                abriu = webbrowser.open(link_email)
+
+                # Abre a pasta onde o backup foi salvo
+                os.startfile(str(pasta_backup))
+
+                janela.destroy()
+
+                if abriu:
+                    messagebox.showinfo(
+                        "E-mail preparado",
+                        "O backup foi gerado com sucesso!\n\n"
+                        "O programa de e-mail foi solicitado para abertura.\n\n"
+                        "O que fazer agora:\n"
+                        "1. Verifique se o e-mail abriu.\n"
+                        "2. Caso necessário, entre na sua conta.\n"
+                        "3. Anexe o arquivo de backup.\n"
+                        "4. Clique em Enviar.\n\n"
+                        f"Local do backup:\n{arquivo}\n\n"
+                        "Atenção: o GDAEQ não consegue confirmar "
+                        "se o e-mail foi enviado."
+                    )
+                else:
+                    messagebox.showwarning(
+                        "E-mail não aberto",
+                        "O backup foi gerado, mas não foi possível "
+                        "solicitar a abertura do programa de e-mail.\n\n"
+                        "Verifique se existe um programa de e-mail "
+                        "configurado no computador.\n\n"
+                        f"O backup está salvo em:\n{arquivo}"
+                    )
+
+            except Exception as e:
+                messagebox.showerror(
+                    "Erro",
+                    f"Não foi possível preparar o backup:\n{e}",
+                    parent=janela
+                )
+
+        # Salvar no computador
+        ctk.CTkButton(
+            janela,
+            text="💾 Salvar no computador",
+            width=360,
+            height=40,
+            fg_color="#1F6AA5",
+            hover_color="#144870",
+            command=lambda: (janela.destroy(), self._fazer_backup())
+        ).pack(pady=5)
+
+        # Enviar por e-mail
+        ctk.CTkButton(
+            janela,
+            text="✉ Preparar envio por e-mail",
+            width=360,
+            height=40,
+            fg_color="#238636",
+            hover_color="#19692c",
+            command=enviar_backup
+        ).pack(pady=5)

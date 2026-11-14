@@ -63,19 +63,21 @@ class ParametroSimulacao:
 
 
 
+
 class GemeoDigital:
     def __init__(self):
         self.tempo_atual: float = 0.0
         self.temp_simulada_atual: float = 25.0
+        self.duracao_simulacao: int = 120
 
     def calcular_proximo_passo(self, dt: float, delta_t_teorico: float) -> float:
         self.tempo_atual += dt
-        dT_dt = delta_t_teorico / 20.0
+
+        dT_dt = delta_t_teorico / self.duracao_simulacao
+
         self.temp_simulada_atual += dT_dt * dt
+
         return self.temp_simulada_atual
-
-
-
 
 
 class ConexaoSerial:
@@ -146,9 +148,44 @@ class ConexaoSerial:
                 raise ConnectionError("Arduino não está conectado.")
 
             try:
-                linha = self.serial_conn.readline().decode(
-                    "utf-8", errors="ignore"
-                ).strip()
+
+                ultima_leitura = None
+
+                try:
+                    while self.serial_conn.in_waiting > 0:
+                        linha = self.serial_conn.readline().decode(
+                            "utf-8", errors="ignore"
+                        ).strip()
+
+                        if linha:
+                            try:
+                                temperatura = float(linha)
+
+                                if temperatura != -127.0 and math.isfinite(temperatura):
+                                    ultima_leitura = temperatura
+
+                            except ValueError:
+                                continue
+
+                    if ultima_leitura is None:
+                        linha = self.serial_conn.readline().decode(
+                            "utf-8", errors="ignore"
+                        ).strip()
+
+                        if not linha:
+                            raise TimeoutError("O Arduino não enviou uma temperatura.")
+
+                        ultima_leitura = float(linha)
+
+                    leitura_bruta = ultima_leitura
+
+                except (serial.SerialException, ValueError) as erro:
+                    self.conexao_ativa = False
+                    raise ConnectionError(
+                        f"Erro na comunicação com o Arduino: {erro}"
+                    ) from erro
+
+
 
             except serial.SerialException as erro:
                 self.conexao_ativa = False
@@ -302,17 +339,13 @@ class Experimento:
 
         temp_fisica = self.conexao_serial.ler_dados_temp()
         self.tempo_decorrido += 1
-        delta_t_passo = self.delta_t_calculado if self.tempo_decorrido <= 20 else 0.0
-        base_temp = self.parametro_simulacao.temp_inicial + (
-                (self.delta_t_calculado / 20.0) * min(self.tempo_decorrido, 20))
+        delta_t_passo = (
+            self.delta_t_calculado
+            if self.tempo_decorrido <= self.gemeo_digital.duracao_simulacao
+            else 0.0
+        )
 
-
-
-        # Registra primeiro a temperatura atual do Gêmeo Digital
-        temp_modelo = self.gemeo_digital.temp_simulada_atual
-
-        # Calcula o próximo estado para a próxima leitura
-        self.gemeo_digital.calcular_proximo_passo(
+        temp_modelo = self.gemeo_digital.calcular_proximo_passo(
             dt=1.0,
             delta_t_teorico=delta_t_passo
         )
@@ -324,7 +357,7 @@ class Experimento:
             alerta = LogAlerta(len(self.logs_alerta) + 1, "ALERTA_TEMP", "Temperatura acima de 80°C")
             self.logs_alerta.append(alerta)
 
-        if self.tempo_decorrido >= 40:
+        if self.tempo_decorrido >= 120:
             self.finalizar_ensaio()
 
         return {

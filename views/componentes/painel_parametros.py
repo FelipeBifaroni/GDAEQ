@@ -43,15 +43,19 @@ class PainelParametros(ctk.CTkFrame):
         # ----------------------------------------------------
         # 2. CONTEÚDO PRINCIPAL (GRID EXPANSÍVEL)
         # ----------------------------------------------------
-        self.frame_grid = ctk.CTkFrame(self, fg_color="transparent")
+        self.frame_grid = ctk.CTkScrollableFrame(
+            self,
+            fg_color="transparent",
+            corner_radius=0
+        )
         self.frame_grid.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
 
         self.frame_grid.grid_columnconfigure(0, weight=1)
         self.frame_grid.grid_columnconfigure(1, weight=1)
 
-        # Faz as linhas do grid expandirem proporcionalmente para preencher a tela cheia
+        # Mantém a altura natural dos campos, permitindo rolagem vertical
         for i in range(12):
-            self.frame_grid.grid_rowconfigure(i, weight=1)
+            self.frame_grid.grid_rowconfigure(i, weight=0)
 
         r = 0
 
@@ -131,17 +135,40 @@ class PainelParametros(ctk.CTkFrame):
         self.txt_subst_formula = self._entry_grid(self.frame_grid, "Fórmula Química", row=r, col=1)
         r += 1
 
-        self.txt_massa_molar = self._entry_grid(self.frame_grid, "Massa Molar (g/mol)", row=r, col=0)
-        self.txt_massa = self._entry_grid(self.frame_grid, "Massa Reagente (g)", row=r, col=1)
+        self.txt_massa_molar = self._entry_grid(
+            self.frame_grid,
+            "Massa Molar do Reagente Limitante (g/mol)",
+            row=r, col=0
+        )
+        self.txt_massa = self._entry_grid(
+            self.frame_grid,
+            "Massa do Reagente Limitante (g)",
+            row=r, col=1
+        )
         r += 1
 
-        self.txt_entalpia = self._entry_grid(self.frame_grid, "Entalpia ΔH (kJ/mol)", row=r, col=0)
-        self.txt_temp_ini = self._entry_grid(self.frame_grid, "Temp. Inicial (°C)", row=r, col=1)
+        self.txt_entalpia = self._entry_grid(
+            self.frame_grid,
+            "Entalpia da Reação ΔH (kJ/mol)",
+            row=r, col=0
+        )
+        self.txt_temp_ini = self._entry_grid(
+            self.frame_grid,
+            "Temperatura Inicial da Mistura (°C)",
+            row=r, col=1
+        )
         r += 1
 
-        self.txt_massa_total = self._entry_grid(self.frame_grid, "Massa Total (g)", row=r, col=0)
-        self.txt_porta_com = self._entry_grid(self.frame_grid, "Porta COM", row=r, col=1)
-        r += 1
+        self.txt_massa_total = self._entry_grid(
+            self.frame_grid,
+            "Massa Total da Mistura (g)",
+            row=r, col=0
+        )
+        self.txt_porta_com = self._entry_grid(
+            self.frame_grid,
+            "Porta de Comunicação (COM)",
+            row=r, col=1
+        )
 
         # ----------------------------------------------------
         # 3. RODAPÉ FIXO COM BOTAIS GRANDES E DESTACADOS
@@ -178,17 +205,30 @@ class PainelParametros(ctk.CTkFrame):
 
     def _entry_grid(self, parent, label_text, row, col, columnspan=1):
         frame_campo = ctk.CTkFrame(parent, fg_color="transparent")
-        frame_campo.grid(row=row, column=col, columnspan=columnspan, padx=5, pady=4, sticky="nsew")
+        frame_campo.grid(
+            row=row,
+            column=col,
+            columnspan=columnspan,
+            padx=5,
+            pady=4,
+            sticky="nsew"
+        )
 
         lbl = ctk.CTkLabel(
             frame_campo,
             text=label_text,
             anchor="w",
-            font=ctk.CTkFont(size=13, weight="bold")  # Fonte bem legível para aulas
+            justify="left",
+            wraplength=220,
+            font=ctk.CTkFont(size=13, weight="bold")
         )
         lbl.pack(fill="x", padx=2, pady=(0, 2))
 
-        entry = ctk.CTkEntry(frame_campo, height=32, font=ctk.CTkFont(size=13))  # Caixas de texto maiores
+        entry = ctk.CTkEntry(
+            frame_campo,
+            height=32,
+            font=ctk.CTkFont(size=13)
+        )
         entry.pack(fill="x")
 
         return entry
