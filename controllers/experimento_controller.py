@@ -196,13 +196,12 @@ class ExperimentoController:
 
                     )
 
-                    LogRepository.salvar(
-
+                    salvou = LogRepository.salvar(
                         novo_log,
-
                         self.experimento_id_db
-
                     )
+                    if not salvou:
+                        print("Não foi possível registrar o alerta no banco.")
 
 
                 except Exception as log_err:
@@ -243,7 +242,6 @@ class ExperimentoController:
                     print(
                         f"⚠️ Alerta da Trigger de Segurança do Banco: {erro_str}"
                     )
-
                     if (
                             "fora da faixa operacional" in erro_str
                             or "ABORT" in erro_str
@@ -263,10 +261,13 @@ class ExperimentoController:
                                 )
                             )
 
-                            LogRepository.salvar(
+                            salvou = LogRepository.salvar(
                                 novo_log,
                                 self.experimento_id_db
                             )
+
+                            if not salvou:
+                                print("Não foi possível registrar o alerta no banco.")
 
                         except Exception as log_err:
                             print(
@@ -502,10 +503,17 @@ class ExperimentoController:
             )
 
             try:
-                LogRepository.salvar(
-                    novo_log,
-                    self.experimento_id_db
-                )
+                try:
+                    salvou = LogRepository.salvar(
+                        novo_log,
+                        self.experimento_id_db
+                    )
+
+                    if not salvou:
+                        print("Não foi possível registrar o alerta no banco.")
+
+                except Exception as log_err:
+                    print(f"Erro ao salvar log no banco: {log_err}")
             except Exception as log_err:
                 print(f"Erro ao salvar log no banco: {log_err}")
 

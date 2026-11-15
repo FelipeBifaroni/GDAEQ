@@ -73,9 +73,11 @@ class GemeoDigital:
     def calcular_proximo_passo(self, dt: float, delta_t_teorico: float) -> float:
         self.tempo_atual += dt
 
-        dT_dt = delta_t_teorico / self.duracao_simulacao
+        duracao_simulacao = 40
 
-        self.temp_simulada_atual += dT_dt * dt
+        if self.tempo_atual <= duracao_simulacao:
+            dT_dt = delta_t_teorico / duracao_simulacao
+            self.temp_simulada_atual += dT_dt * dt
 
         return self.temp_simulada_atual
 
@@ -91,7 +93,7 @@ class ConexaoSerial:
 
         # Modo temporário de simulação
         self.modo_simulacao = False
-        self.temperatura_fixa = 25.0
+        self.temperatura_fixa = 25
 
     def conectar(self) -> bool:
         if self.modo_simulacao:

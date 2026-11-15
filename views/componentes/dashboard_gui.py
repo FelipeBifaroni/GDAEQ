@@ -11,7 +11,7 @@ class DashboardGUI:
         self.ax.xaxis.label.set_color("white")
         self.ax.yaxis.label.set_color("white")
         self.ax.title.set_color("white")
-        self.ax.set_title("Curva de Temperatura (°C) vs Tempo (s)")
+        self.ax.set_title("Curva de Temperatura (°C) vs Tempo (s)",pad=25)
         self.ax.set_xlabel("Tempo (s)")
         self.ax.set_ylabel("Temperatura (°C)")
         self.ax.grid(True, color="gray", linestyle="--", alpha=0.5)
@@ -19,7 +19,15 @@ class DashboardGUI:
         self.linha_real, = self.ax.plot([], [], label="Sensor Físico (Arduino)", color="#00ffff", linewidth=2)
         self.linha_sim, = self.ax.plot([], [], label="Gêmeo Digital (Simulado)", color="#ff007f", linestyle="--",
                                        linewidth=2)
-        self.ax.legend(loc="upper left", facecolor="#2b2b2b", edgecolor="none", labelcolor="white")
+        self.ax.legend(
+            loc="lower center",
+            bbox_to_anchor=(0.5, 1.12),
+            ncol=2,
+            facecolor="#2b2b2b",
+            edgecolor="none",
+            labelcolor="white"
+        )
+        self.fig.subplots_adjust(top=0.85)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.master_frame)
         self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)

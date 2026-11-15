@@ -983,12 +983,10 @@ class MainView(ctk.CTk):
             background="#2d3e35",
             foreground="#ffffff"
         )
-
         # Busca os registros existentes no banco
         dados_logs = self.controller.listar_logs_alerta()
 
         for log in dados_logs:
-            # Esperado: (id, tipo_evento, descricao, timestamp)
             id_log, experimento_id, tipo_evento, descricao, timestamp = log
 
             tipo = str(tipo_evento).upper()
@@ -1232,14 +1230,6 @@ class MainView(ctk.CTk):
                 f"Não foi possível criar o backup:\n{e}"
             )
 
-        def _restaurar_backup(self):
-            # Impede a restauração durante um experimento em execução
-            if self.controller.executando:
-                messagebox.showwarning(
-                    "Experimento em andamento",
-                    "Finalize ou interrompa o experimento antes de restaurar um backup."
-                )
-                return
 
             caminho = filedialog.askopenfilename(
                 title="Selecionar backup do GDAEQ",

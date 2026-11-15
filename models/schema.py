@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS LogAlerta (
     timestamp TEXT NOT NULL,
     FOREIGN KEY (experimento_id)
         REFERENCES Experimento(id)
-        ON DELETE CASCADE
+        ON DELETE SET NULL
 );
 
 -- Triggers de Segurança e Negócio
